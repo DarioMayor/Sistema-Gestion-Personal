@@ -87,65 +87,75 @@ def recibir_error_fichaje():
 
 # --- RUTA 2: El endpoint para el ESP32  ---
 @app.route("/fichar", methods=['POST'])
+@app.route("/fichar", methods=['POST'])
 def recibir_fichaje():
     datos = request.json
-    huella_id = datos.get('id_huella') 
+    sensor_id = datos.get('id_huella') 
     
-    if not huella_id:
+    if not sensor_id:
         return jsonify({"status": "error", "mensaje": "No se recibió id_huella"}), 400
 
     print(f"--- Nuevo Fichaje ---")
-    print(f"Sensor ID recibido: {huella_id}")
+    print(f"Sensor ID recibido: {sensor_id}")
 
     try:
         conn = mysql.connector.connect(**db_config)
-        # dictionary=True es CLAVE para poder enviar los datos fácilmente
         cursor = conn.cursor(dictionary=True) 
 
         # PASO A: Buscar el usuario
-        cursor.execute("SELECT usuario_id FROM huellas WHERE huella_id = %s", (huella_id,))
+        cursor.execute("SELECT usuario_id FROM huellas WHERE huella_id = %s", (sensor_id,))
         usuario_encontrado = cursor.fetchone() 
 
         if not usuario_encontrado:
-            print(f"Error: Sensor ID {huella_id} no está registrado.")
+            print(f"Error: Sensor ID {sensor_id} no está registrado.")
             return jsonify({"status": "error", "mensaje": "Huella no registrada"}), 404
 
-        usuario_id = usuario_encontrado['usuario_id'] # Usamos 'usuario_id' por dictionary=True
+        usuario_id = usuario_encontrado['usuario_id']
         print(f"Usuario encontrado: ID {usuario_id}")
 
-        # PASO B: Decidir si es ENTRADA o SALIDA
-        today = date.today()
-        sql_ultimo_fichaje = """
+        # PASO B: Decidir si es ENTRADA o SALIDA (Lógica Diaria)
+        
+        # 1. Buscamos si hay fichajes HOY para este usuario
+        today = datetime.date.today()
+        
+        sql_ultimo_hoy = """
             SELECT tipo FROM fichajes 
-            WHERE usuario_id = %s AND DATE(timestamp) = %s 
-            ORDER BY timestamp DESC LIMIT 1
+            WHERE usuario_id = %s AND DATE(timestamp) = %s
+            ORDER BY timestamp DESC 
+            LIMIT 1
         """
-        cursor.execute(sql_ultimo_fichaje, (usuario_id, today))
-        ultimo_fichaje = cursor.fetchone()
+        cursor.execute(sql_ultimo_hoy, (usuario_id, today))
+        ultimo_fichaje_hoy = cursor.fetchone()
 
         nuevo_tipo = ""
-        if not ultimo_fichaje:
+        
+        if not ultimo_fichaje_hoy:
+            # CASO 1: No hay fichajes hoy.
+            # Por lo tanto, es el primer movimiento del día -> ENTRADA
+            # (Esto arregla automáticamente el olvido de salida de ayer)
             nuevo_tipo = "entrada"
+            print(">> Primer fichaje del día: ENTRADA")
         else:
-            tipo_anterior = ultimo_fichaje['tipo']
+            # CASO 2: Ya fichó hoy. Seguimos la secuencia normal.
+            tipo_anterior = ultimo_fichaje_hoy['tipo']
+            
             if tipo_anterior == "entrada":
                 nuevo_tipo = "salida"
-            else: 
-                nuevo_tipo = "entrada"
+            else: # Si el último fue salida (ej: salió a almorzar)
+                nuevo_tipo = "entrada" # Vuelve a entrar
+            
+            print(f">> Fichaje previo hoy fue {tipo_anterior}. Nuevo: {nuevo_tipo}")
         
-        print(f"Tipo de fichaje determinado: {nuevo_tipo}")
-
         # PASO C: Insertar el nuevo fichaje
         sql_insert = "INSERT INTO fichajes (usuario_id, timestamp, tipo) VALUES (%s, NOW(), %s)"
         valores = (usuario_id, nuevo_tipo)
         cursor.execute(sql_insert, valores)
-        id_fichaje_nuevo = cursor.lastrowid # Obtenemos el ID del fichaje que acabamos de crear
+        id_fichaje_nuevo = cursor.lastrowid
         conn.commit() 
 
         print(f"¡Éxito! Fichaje guardado en la DB.")
         
-        # --- 3. EMITIR EL EVENTO WEBSOCKET ---
-        # Buscamos todos los datos de ese fichaje para enviarlos al monitor
+        # --- Notificar al Monitor ---
         sql_get_data = """
             SELECT f.id, f.timestamp, f.tipo, u.nombre, u.apellido 
             FROM fichajes AS f
@@ -156,15 +166,11 @@ def recibir_fichaje():
         datos_para_monitor = cursor.fetchone()
         
         if datos_para_monitor:
-            # Convertimos el objeto 'datetime' a un string, porque JSON no lo soporta
             datos_para_monitor['timestamp'] = datos_para_monitor['timestamp'].isoformat()
-            
-            # Emitimos el evento 'nuevo_fichaje' a todos los clientes conectados
             socketio.emit('nuevo_fichaje', datos_para_monitor)
-            print("Evento WebSocket 'nuevo_fichaje' emitido al monitor.")
+            print("Evento WebSocket emitido.")
             
         print("-----------------------\n")
-        
         cursor.close()
         conn.close()
 
@@ -172,7 +178,7 @@ def recibir_fichaje():
         print(f"Error de Base de Datos: {err}")
         return jsonify({"status": "error", "mensaje": "Error de base de datos"}), 500
 
-    return jsonify({"status": "ok", "recibido": huella_id, "tipo": nuevo_tipo}), 200
+    return jsonify({"status": "ok", "recibido": sensor_id, "tipo": nuevo_tipo}), 200
 
 
 # --- RUTA DE LOGIN  ---
@@ -449,6 +455,7 @@ def eliminar_usuario(usuario_id):
     return redirect(url_for('admin_usuarios'))
 
 
+
 @app.route("/admin/descargar_excel", methods=['POST'])
 @admin_required
 def descargar_excel():
@@ -468,9 +475,9 @@ def descargar_excel():
             }
             month_name = meses[start_date_obj.month].capitalize()
         except Exception:
-            month_name = "" # Fallback por si falla el parseo
+            month_name = "" 
             
-        print(f"Generando reporte HTML-Style Excel (Min/Max, Mes, Bordes Grises) para {month_name}...")
+        print(f"Generando reporte HTML-Style Excel (Limpieza de duplicados) para {month_name}...")
 
         # 2. Conectar y ejecutar la consulta SQL
         conn = mysql.connector.connect(**db_config)
@@ -502,11 +509,28 @@ def descargar_excel():
         salidas_df = df[df['tipo'] == 'salida']
 
         common_cols = ['legajo', 'nombre', 'apellido', 'fecha']
+        
+        # Calcular MIN (Turno Mañana)
         e_min = entradas_df.groupby(common_cols)['hora'].min().reset_index().rename(columns={'hora': 'Entrada'})
         s_min = salidas_df.groupby(common_cols)['hora'].min().reset_index().rename(columns={'hora': 'Salida'})
         
+        # Calcular MAX (Turno Tarde)
         e_max = entradas_df.groupby(common_cols)['hora'].max().reset_index().rename(columns={'hora': 'Entrada'})
         s_max = salidas_df.groupby(common_cols)['hora'].max().reset_index().rename(columns={'hora': 'Salida'})
+
+        # Limpieza de duplicados: Si el MAX es igual al MIN, lo borramos del MAX.
+        # 1. Limpiar Entradas repetidas
+        e_max = pd.merge(e_max, e_min, on=common_cols, suffixes=('', '_min'), how='left')
+        mask_e = e_max['Entrada'] == e_max['Entrada_min']
+        e_max.loc[mask_e, 'Entrada'] = None # Dejamos vacío si es igual al de la mañana
+        e_max = e_max.drop(columns=['Entrada_min']) # Limpiamos columna auxiliar
+        
+        # 2. Limpiar Salidas repetidas (Lo que pediste específicamente)
+        s_max = pd.merge(s_max, s_min, on=common_cols, suffixes=('', '_min'), how='left')
+        mask_s = s_max['Salida'] == s_max['Salida_min']
+        s_max.loc[mask_s, 'Salida'] = None # Dejamos vacío si es igual a la salida de la mañana
+        s_max = s_max.drop(columns=['Salida_min']) # Limpiamos columna auxiliar
+        # -----------------------------------
 
         e_min['Turno'] = 'Mañana'
         e_max['Turno'] = 'Tarde'
@@ -519,6 +543,7 @@ def descargar_excel():
         merge_cols = ['legajo', 'nombre', 'apellido', 'fecha', 'Turno']
         reporte_long_df = pd.merge(all_entradas, all_salidas, on=merge_cols, how='outer')
 
+        # Limpieza extra por si quedaron duplicados vacíos
         reporte_long_df = reporte_long_df.drop_duplicates(subset=['legajo', 'fecha', 'Entrada', 'Salida'])
 
         reporte_long_df['Apellido y Nombre'] = reporte_long_df['apellido'].fillna('') + ', ' + reporte_long_df['nombre'].fillna('')
@@ -552,45 +577,29 @@ def descargar_excel():
         worksheet = workbook.create_sheet(title='Reporte Fichajes', index=0)
         writer.sheets['Reporte Fichajes'] = worksheet
 
-        # 5. Definir Estilos
+        # 5. Definir Estilos (Igual que antes)
         bold_font = Font(bold=True)
         silver_fill = PatternFill(start_color="C0C0C0", end_color="C0C0C0", fill_type="solid")
         
-        # Borde grueso y negro (para exteriores)
         medium_side = Side(style='medium') 
-        # Borde fino y negro (para interiores de headers y legajo/nombre)
         thin_side = Side(style='thin')
-        
-        # --- ¡NUEVO! Borde fino y gris (para la cruz de horarios) ---
-        # "A9A9A9" es un gris oscuro, "D3D3D3" es un gris claro. Usemos "A9A9A9".
         gray_thin_side = Side(style='thin', color="A9A9A9") 
         
-        # Estilos de Encabezado (usan thin_side negro)
         border_R1 = Border(top=medium_side, left=medium_side, right=medium_side, bottom=thin_side)
         border_A2 = Border(top=thin_side, left=medium_side, bottom=medium_side, right=thin_side)
         border_B2 = Border(top=thin_side, left=thin_side, bottom=medium_side, right=medium_side)
         border_R2_entrada = Border(top=thin_side, left=medium_side, bottom=medium_side, right=thin_side)
         border_R2_salida = Border(top=thin_side, left=thin_side, bottom=medium_side, right=medium_side)
         
-        # Bordes para Celdas de Datos
-        
-        # Col A (Legajo) - usa thin_side negro
+        # Bordes de Datos
         border_legajo_top = Border(left=medium_side, top=medium_side, right=thin_side, bottom=thin_side)
         border_legajo_bottom = Border(left=medium_side, top=thin_side, right=thin_side, bottom=medium_side)
-        
-        # Col B (Nombre) - usa thin_side negro
         border_nombre_top = Border(left=thin_side, top=medium_side, right=medium_side, bottom=thin_side)
         border_nombre_bottom = Border(left=thin_side, top=thin_side, right=medium_side, bottom=medium_side)
 
-        # Col Data (Bloque 2x2 por día) - ¡AJUSTES AQUÍ PARA LA "CRUZ" GRIS!
-        
-        # Arriba-Izquierda (Entrada Mañana)
         border_data_entrada_am = Border(left=medium_side, top=medium_side, right=gray_thin_side, bottom=gray_thin_side) 
-        # Arriba-Derecha (Salida Mañana)
         border_data_salida_am = Border(left=gray_thin_side, top=medium_side, right=medium_side, bottom=gray_thin_side)
-        # Abajo-Izquierda (Entrada Tarde)
         border_data_entrada_pm = Border(left=medium_side, top=gray_thin_side, right=gray_thin_side, bottom=medium_side) 
-        # Abajo-Derecha (Salida Tarde)
         border_data_salida_pm = Border(left=gray_thin_side, top=gray_thin_side, right=medium_side, bottom=medium_side)
 
         # 6. Escribir Encabezado Fila 1 
@@ -656,13 +665,12 @@ def descargar_excel():
             col_idx += 2
         
         # 8. Escribir datos con fusión y bordes de bloque
-        
         current_excel_row = 3
         
         for (legajo, apellido_nombre), group in pivot_df.groupby(['legajo', 'Apellido y Nombre']):
             
             row_am = group[group['Turno'] == 'Mañana'] 
-            row_pm = group[group['Turno'] == 'Tarde']  
+            row_pm = group[group['Turno'] == 'Tarde']   
             
             # --- Escribir y Fusionar (Rowspan) ---
             cell_legajo = worksheet.cell(row=current_excel_row, column=1, value=legajo)
@@ -719,7 +727,7 @@ def descargar_excel():
         writer.close() 
         output.seek(0) 
 
-        print("Reporte Excel estilo HTML (Min/Max, Mes, Bordes Grises) generado. Enviando al usuario...")
+        print("Reporte Excel estilo HTML (Limpio) generado. Enviando al usuario...")
 
         return send_file(
             output,
@@ -736,6 +744,7 @@ def descargar_excel():
         
         flash(f"Error al generar el reporte: {e}", "error")
         return redirect(url_for('dashboard'))
+    
     
 # --- RUTA PARA VER EL LOG DE FICHAJES ---
 @app.route("/ver_fichajes", methods=['POST'])
@@ -800,6 +809,7 @@ def ver_fichajes():
     except Exception as e:
         flash(f"Error: {e}", "error")
         return redirect(url_for('dashboard'))
+    
 
 # --- CLASE PARA EL REPORTE PDF ---
 class PDF(FPDF):

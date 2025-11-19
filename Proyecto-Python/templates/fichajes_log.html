@@ -33,7 +33,7 @@
 
     
     <div class="container">
-        {% if role == 'admin' %}
+
         <div class="header-actions">
             <h2>Log Cronológico: {{ start_date | format_date_html }} al {{ end_date | format_date_html }}</h2>
             <form action="/admin/descargar_log_pdf" method="POST" class="pdf-form">
@@ -42,7 +42,7 @@
                 <button type="submit" class="btn btn-pdf">Descargar PDF</button>
             </form>
         </div>
-        {% endif %}
+
         
         {% if records %}
         <p>Total de eventos: <strong>{{ records | length }}</strong></p>
