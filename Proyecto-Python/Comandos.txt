@@ -1,0 +1,4 @@
+.\venv\Scripts\activate
+
+En caso que no deje ejecutar el actívate:
+Set-ExecutionPolicy RemoteSigned -Scope Process

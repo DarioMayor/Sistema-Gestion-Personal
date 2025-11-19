@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Administración de Usuarios</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }
+        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 1000px; margin: auto; }
+        
+        /* Barra superior */
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .top-bar h1 { margin: 0; color: #333; font-size: 1.8em; }
+        .btn-back { text-decoration: none; color: #666; }
+
+        /* Tabla */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; font-weight: bold; color: #444; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+
+        /* Botones */
+        .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; color: white; text-decoration: none; font-size: 0.9em; display: inline-block; }
+        .btn-new { background-color: #28a745; padding: 10px 15px; font-size: 1em; margin-bottom: 15px; }
+        .btn-edit { background-color: #007bff; }
+        .btn-delete { background-color: #dc3545; }
+        
+        .actions { display: flex; gap: 5px; }
+        form { margin: 0; }
+
+        /* Mensajes Flash */
+        .flash { padding: 10px; margin-bottom: 15px; border-radius: 4px; }
+        .flash.success { background: #d4edda; color: #155724; }
+        .flash.error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="top-bar">
+        <h1>Administración de Usuarios</h1>
+        <a href="/dashboard" class="btn-back">← Volver al Panel</a>
+    </div>
+
+    <!-- Mensajes Flash -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Botón Crear -->
+    <a href="/admin/crear" class="btn btn-new">+ Crear Nuevo Usuario</a>
+
+    <!-- Tabla de Usuarios -->
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Apellido y Nombre</th>
+                <th>Legajo</th>
+                <th>Email (Usuario)</th>
+                <th>Rol</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in usuarios %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.apellido }}, {{ user.nombre }}</td>
+                <td>{{ user.legajo }}</td>
+                <td>{{ user.username }}</td>
+                <td>
+                    {% if user.role == 'admin' %}
+                        <span style="color: #d63384; font-weight: bold;">Admin</span>
+                    {% else %}
+                        <span style="color: #6c757d;">Usuario</span>
+                    {% endif %}
+                </td>
+                <td class="actions">
+                    <a href="/admin/editar/{{ user.id }}" class="btn btn-edit">Editar</a>
+                    
+                    <!-- Botón Eliminar con confirmación -->
+                    <form action="/admin/eliminar/{{ user.id }}" method="POST" onsubmit="return confirm('¿Estás SEGURO de eliminar a {{ user.username }}?\n\nSe borrarán también sus huellas y todo su historial de fichajes.');">
+                        <button type="submit" class="btn btn-delete">Eliminar</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+</body>
+</html>

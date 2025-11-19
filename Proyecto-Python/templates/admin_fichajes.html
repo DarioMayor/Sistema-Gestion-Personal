@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestión de Fichajes</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }
+        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 900px; margin: auto; }
+        h1, h3 { color: #333; }
+        
+        /* Barra superior */
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .btn-back { text-decoration: none; color: #666; }
+        
+        /* Filtro de Fecha */
+        .filter-box { background: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+        
+        /* Formulario de Agregar */
+        .add-box { background: #e8f5e9; padding: 15px; border: 1px solid #c8e6c9; border-radius: 5px; margin-bottom: 20px; }
+        .inline-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+        .form-group { display: flex; flex-direction: column; }
+        .form-group label { font-size: 0.85em; font-weight: bold; margin-bottom: 3px; }
+        .form-control { padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
+        
+        /* Tabla */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #f8f9fa; }
+        
+        .entrada { color: #1a7342; font-weight: bold; }
+        .salida { color: #dc3545; font-weight: bold; }
+        
+        .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; color: white; text-decoration: none; font-size: 0.9em; }
+        .btn-add { background-color: #28a745; }
+        .btn-edit { background-color: #007bff; }
+        .btn-delete { background-color: #dc3545; }
+        .btn-filter { background-color: #6c757d; }
+
+        .flash { padding: 10px; margin-bottom: 10px; border-radius: 4px; }
+        .flash.success { background: #d4edda; color: #155724; }
+        .flash.error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="top-bar">
+        <h1>Gestión Manual de Fichajes</h1>
+        <a href="/dashboard" class="btn-back">← Volver al Panel</a>
+    </div>
+
+    <!-- Mensajes Flash -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- 1. FILTRO DE FECHA -->
+    <div class="filter-box">
+        <form action="/admin/fichajes" method="GET" style="display:flex; align-items:center; gap:10px; width:100%;">
+            <label for="fecha"><strong>Viendo fichajes del día:</strong></label>
+            <input type="date" name="fecha" value="{{ fecha_seleccionada }}" class="form-control">
+            <button type="submit" class="btn btn-filter">Cambiar Fecha</button>
+        </form>
+    </div>
+
+    <!-- 2. FORMULARIO PARA AGREGAR NUEVO -->
+    <div class="add-box">
+        <h3>Agregar Fichaje Manual</h3>
+        <form action="/admin/fichajes" method="POST" class="inline-form">
+            <!-- input hidden para mantener la fecha al recargar -->
+            <input type="hidden" name="fecha_filtro" value="{{ fecha_seleccionada }}">
+
+            <div class="form-group">
+                <label>Usuario:</label>
+                <select name="usuario_id" class="form-control" required>
+                    <option value="">Seleccione...</option>
+                    {% for u in usuarios %}
+                        <option value="{{ u.id }}">{{ u.apellido }}, {{ u.nombre }} ({{ u.legajo }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>Fecha:</label>
+                <input type="date" name="fecha" value="{{ fecha_seleccionada }}" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Hora:</label>
+                <input type="time" name="hora" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Tipo:</label>
+                <select name="tipo" class="form-control">
+                    <option value="entrada">Entrada</option>
+                    <option value="salida">Salida</option>
+                </select>
+            </div>
+            
+            <button type="submit" class="btn btn-add">Agregar</button>
+        </form>
+    </div>
+
+    <!-- 3. TABLA DE FICHAJES -->
+    <h3>Listado del {{ fecha_seleccionada | format_date_html}}</h3>
+    {% if fichajes %}
+    <table>
+        <thead>
+            <tr>
+                <th>Hora</th>
+                <th>Legajo</th>
+                <th>Apellido y Nombre</th>
+                <th>Tipo</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in fichajes %}
+            <tr>
+                <td>{{ f.hora_str }}</td>
+                <td>{{ f.legajo }}</td>
+                <td>{{ f.apellido }}, {{ f.nombre }}</td>
+                <td class="{{ 'entrada' if f.tipo == 'entrada' else 'salida' }}">
+                    {{ f.tipo | upper }}
+                </td>
+                <td style="display: flex; gap: 5px;">
+                    <!-- Botón Editar -->
+                    <a href="/admin/fichajes/editar/{{ f.id }}" class="btn btn-edit">Editar</a>
+                    
+                    <!-- Botón Eliminar -->
+                    <form action="/admin/fichajes/eliminar/{{ f.id }}" method="POST" onsubmit="return confirm('¿Borrar este fichaje?');">
+                        <input type="hidden" name="fecha_retorno" value="{{ fecha_seleccionada }}">
+                        <button type="submit" class="btn btn-delete">X</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p>No hay fichajes registrados para esta fecha.</p>
+    {% endif %}
+
+</div>
+
+</body>
+</html>
