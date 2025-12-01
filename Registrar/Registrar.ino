@@ -11,7 +11,7 @@ void setup()
 {
   Serial.begin(115200);
   while (!Serial)
-    ; // For Yun/Leo/Micro/Zero/...
+    ; 
   delay(100);
   
   int8_t rxPin = 26;

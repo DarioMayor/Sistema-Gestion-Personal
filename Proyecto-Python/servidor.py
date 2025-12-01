@@ -426,7 +426,7 @@ def editar_usuario(usuario_id):
 @app.route("/admin/eliminar/<int:usuario_id>", methods=['POST'])
 @admin_required
 def eliminar_usuario(usuario_id):
-    # No puedes eliminarte a ti mismo
+    # No podes eliminarte a ti mismo
     if usuario_id == session['user_id']:
         flash("No puedes eliminar tu propia cuenta de administrador.", "error")
         return redirect(url_for('admin_usuarios'))
@@ -435,7 +435,6 @@ def eliminar_usuario(usuario_id):
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
         
-        # ¡IMPORTANTE! Borra los "hijos" primero para evitar errores
         # 1. Borra las huellas de ese usuario
         cursor.execute("DELETE FROM huellas WHERE usuario_id = %s", (usuario_id,))
         # 2. Borra los fichajes de ese usuario
