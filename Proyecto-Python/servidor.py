@@ -87,7 +87,6 @@ def recibir_error_fichaje():
 
 # --- RUTA 2: El endpoint para el ESP32  ---
 @app.route("/fichar", methods=['POST'])
-@app.route("/fichar", methods=['POST'])
 def recibir_fichaje():
     datos = request.json
     sensor_id = datos.get('id_huella') 
