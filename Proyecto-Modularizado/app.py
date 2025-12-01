@@ -7,6 +7,7 @@ import datetime
 from routes.auth_routes import auth_bp
 from routes.main_routes import main_bp
 from routes.admin_routes import admin_bp
+from routes.fichajes_routes import fichajes_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -20,6 +21,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(main_bp)
 # Admin también va en raíz porque definimos las rutas completas dentro (/admin/...)
 app.register_blueprint(admin_bp)
+app.register_blueprint(fichajes_bp)
 
 # Filtro de fecha para Jinja
 def format_date_html_filter(date_str):
