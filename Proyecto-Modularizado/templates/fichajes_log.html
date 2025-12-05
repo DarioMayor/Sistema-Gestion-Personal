@@ -15,34 +15,53 @@
         .entrada { color: #1a7342; font-weight: bold; }
         .salida { color: #dc3545; font-weight: bold; }
         
+        /* --- NUEVO ESTILO DE ALERTA --- */
+        .row-alert {
+            background-color: #ffe6e6; /* Rojo clarito */
+        }
+        .row-alert:hover {
+            background-color: #ffcccc;
+        }
+        .row-alert-yellow {
+            background-color: #fff3cd; /* Amarillo clarito */
+        }
+        .row-alert-yellow:hover {
+            background-color: #ffeeba;
+        }
+        .alert-icon {
+            cursor: help;
+            margin-left: 5px;
+            font-size: 1.1em;
+        }
+        /* ------------------------------ */
+        
         .header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         
         .btn { padding: 10px 15px; text-decoration: none; border-radius: 4px; border: none; cursor: pointer; color: white; font-size: 14px; }
         .btn-back { background-color: #6c757d; }
-        .btn-pdf { background-color: #dc3545; } /* Rojo para PDF */
+        .btn-pdf { background-color: #dc3545; } 
         
-        /* Estilo para el formulario invisible del PDF */
         .pdf-form { display: inline; }
     </style>
 </head>
 <body>
     <div class="navbar">
         <h1>Sistema de Gestión</h1>
-        <a href="/dashboard">Volver al Panel</a>
+        <a href="{{ url_for('admin.dashboard') }}">Volver al Panel</a>
     </div>
 
-    
     <div class="container">
-        {% if user_role == 'admin' %}
         <div class="header-actions">
             <h2>Log Cronológico: {{ start_date | format_date_html }} al {{ end_date | format_date_html }}</h2>
-            <form action="/admin/descargar_log_pdf" method="POST" class="pdf-form">
+            
+            {% if user_role == 'admin' %}
+            <form action="{{ url_for('admin.descargar_log_pdf') }}" method="POST" class="pdf-form">
                 <input type="hidden" name="log_start_date" value="{{ start_date }}">
                 <input type="hidden" name="log_end_date" value="{{ end_date }}">
                 <button type="submit" class="btn btn-pdf">Descargar PDF</button>
             </form>
+            {% endif %}
         </div>
-        {% endif %}
         
         {% if records %}
         <p>Total de eventos: <strong>{{ records | length }}</strong></p>
@@ -52,18 +71,32 @@
                     <th>Fecha</th>
                     <th>Hora</th>
                     <th>Tipo</th>
+                    {% if user_role == 'admin' %}
                     <th>Legajo</th>
                     <th>Apellido y Nombre</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody>
                 {% for record in records %}
-                <tr>
+                <!-- APLICAMOS LA CLASE SI HAY ALERTA -->
+                <tr class="{{ 'row-alert-yellow' if record.alerta_amarilla else ('row-alert' if record.alerta else '') }}">
                     <td>{{ record.fecha }}</td> 
                     <td>{{ record.hora }}</td>
-                    <td class="{{ 'entrada' if record.tipo == 'entrada' else 'salida' }}">{{ record.tipo | upper }}</td>
+                    <td class="{{ 'entrada' if record.tipo == 'entrada' else 'salida' }}">
+                        {{ record.tipo | upper }}
+                        <!-- Ícono de alerta opcional -->
+                        {% if record.alerta_amarilla %}
+                            <span class="alert-icon" title="Fichaje impar (falta cierre)">⚠️</span>
+                        {% elif record.alerta %}
+                            <span class="alert-icon" title="Jornada incompleta (menos del horario requerido)">⚠️</span>
+                        {% endif %}
+                    </td>
+                    
+                    {% if user_role == 'admin' %}
                     <td>{{ record.legajo }}</td>
                     <td>{{ record.apellido }}, {{ record.nombre }}</td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -73,7 +106,7 @@
         {% endif %}
         
         <br>
-        <a href="/dashboard" class="btn btn-back">Volver</a>
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-back">Volver</a>
     </div>
 </body>
 </html>

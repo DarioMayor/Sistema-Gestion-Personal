@@ -7,6 +7,7 @@ import datetime
 from datetime import date 
 import numpy as np
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+import zipfile
 
 from config import Config
 from utils.decorators import login_required, admin_required
@@ -45,8 +46,11 @@ def ver_fichajes():
         user_role = session.get('role')
         user_id = session.get('user_id')
         
+        # Modificamos la consulta para traer también 'horas_laborales' y el ID del usuario
         sql_log = """
-            SELECT f.timestamp, f.tipo, u.nombre, u.apellido, u.legajo
+            SELECT 
+                f.timestamp, f.tipo, 
+                u.id as uid, u.nombre, u.apellido, u.legajo, u.horas_laborales
             FROM fichajes f
             JOIN usuarios u ON f.usuario_id = u.id
             WHERE f.timestamp BETWEEN %s AND %s 
@@ -61,13 +65,105 @@ def ver_fichajes():
         
         cursor.execute(sql_log, params)
         log_records = cursor.fetchall()
+        
         cursor.close()
         conn.close()
 
+        # --- CÁLCULO DE ALERTAS ---
+        # 1. Agrupar eventos por (Usuario, Fecha)
+        eventos_por_dia = {}
+        
+        for r in log_records:
+            # Convertimos a objetos Python puros para trabajar
+            if isinstance(r['timestamp'], datetime.datetime):
+                fecha_obj = r['timestamp'].date()
+                uid = r['uid']
+                clave = (uid, fecha_obj)
+                
+                if clave not in eventos_por_dia:
+                    eventos_por_dia[clave] = {
+                        'eventos': [], 
+                        'horas_laborales': r['horas_laborales']
+                    }
+                eventos_por_dia[clave]['eventos'].append(r)
+
+        # 2. Calcular tiempo trabajado por día y detectar deficiencias
+        claves_con_alerta = set() # Guardaremos los pares (uid, fecha) que fallaron
+        
+        for clave, datos in eventos_por_dia.items():
+            eventos = datos['eventos']
+            
+            # Detectar fichajes sin cierre (entrada sin salida)
+            entrada_pendiente = None
+            for e in eventos:
+                # Inicializar alerta_amarilla en False para todos
+                e['alerta_amarilla'] = False
+                
+                if e['tipo'] == 'entrada':
+                    if entrada_pendiente:
+                        # La entrada anterior no tuvo salida
+                        entrada_pendiente['alerta_amarilla'] = True
+                    entrada_pendiente = e
+                elif e['tipo'] == 'salida':
+                    if entrada_pendiente:
+                        # Cierre correcto
+                        entrada_pendiente = None
+                    else:
+                        # Salida huérfana (opcional: marcar también si se desea)
+                        pass
+            
+            # Si quedó una entrada pendiente al final del día
+            if entrada_pendiente:
+                entrada_pendiente['alerta_amarilla'] = True
+
+            horas_meta = datos['horas_laborales'] # timedelta o string
+            
+            # Convertir meta a segundos
+            if isinstance(horas_meta, datetime.timedelta):
+                segundos_meta = horas_meta.total_seconds()
+            else:
+                # Fallback por si viene como string "08:00:00"
+                h, m, s = map(int, str(horas_meta).split(':'))
+                segundos_meta = h * 3600 + m * 60 + s
+
+            segundos_trabajados = 0
+            entrada_temp = None
+            
+            # Sumar intervalos Entrada -> Salida
+            for e in eventos:
+                ts = e['timestamp']
+                if e['tipo'] == 'entrada':
+                    entrada_temp = ts
+                elif e['tipo'] == 'salida' and entrada_temp:
+                    delta = ts - entrada_temp
+                    segundos_trabajados += delta.total_seconds()
+                    entrada_temp = None
+            
+            # Si hay una entrada sin salida al final del día, no podemos calcular bien,
+            # así que por ahora ignoramos ese último tramo o asumimos que sigue trabajando.
+            
+            # REGLA: Si trabajó menos de (Meta - 30 min)
+            if segundos_trabajados < (segundos_meta - 1800):
+                claves_con_alerta.add(clave)
+
+        # 3. Marcar los registros originales y formatear para la vista
         for record in log_records:
+            # Formato de fecha/hora
             if isinstance(record['timestamp'], datetime.datetime):
+                fecha_obj = record['timestamp'].date()
                 record['fecha'] = record['timestamp'].strftime('%d/%m/%Y')
                 record['hora'] = record['timestamp'].strftime('%H:%M:%S')
+                
+                # Verificar alerta
+                uid = record['uid']
+                if (uid, fecha_obj) in claves_con_alerta:
+                    record['alerta'] = True
+                else:
+                    record['alerta'] = False
+                
+                # La alerta amarilla ya se calculó individualmente en el paso anterior
+                if 'alerta_amarilla' not in record:
+                    record['alerta_amarilla'] = False
             
         if not log_records:
              f_inicio_display = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
@@ -85,9 +181,11 @@ def ver_fichajes():
         flash(f"Error de base de datos al buscar log: {err}", "error")
         return redirect(url_for('admin.dashboard'))
     except Exception as e:
+        import traceback; traceback.print_exc()
         flash(f"Error: {e}", "error")
         return redirect(url_for('admin.dashboard'))
-
+    
+    
 # --- GESTIÓN USUARIOS (LISTA) ---
 @admin_bp.route("/admin/usuarios")
 @admin_required
@@ -118,6 +216,7 @@ def crear_usuario():
         password = request.form['password']
         role = request.form['role']
         huellas_str = request.form.get('huellas', '')
+        horas_laborales = request.form['horas_laborales']
         
         password_hash = generate_password_hash(password)
 
@@ -125,7 +224,12 @@ def crear_usuario():
         cursor = conn.cursor()
         
         try:
-            sql_insert_user = "INSERT INTO usuarios (nombre, apellido, legajo, username, password_hash, role) VALUES (%s, %s, %s, %s, %s, %s)"
+            sql_insert_user = """
+                INSERT INTO usuarios (nombre, apellido, legajo, horas_laborales, username, password_hash, role) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(sql_insert_user, (nombre, apellido, legajo, horas_laborales, username, password_hash, role))
+            new_user_id = cursor.lastrowid
             cursor.execute(sql_insert_user, (nombre, apellido, legajo, username, password_hash, role))
             new_user_id = cursor.lastrowid
             
@@ -173,15 +277,16 @@ def editar_usuario(usuario_id):
         role = request.form['role']
         nueva_password = request.form['nueva_password']
         huellas_str = request.form.get('huellas', '')
+        horas_laborales = request.form['horas_laborales']
         
         try:
             if nueva_password:
                 password_hash = generate_password_hash(nueva_password)
-                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, legajo=%s, username=%s, role=%s, password_hash=%s WHERE id=%s"
-                cursor.execute(sql_update, (nombre, apellido, legajo, username, role, password_hash, usuario_id))
+                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, legajo=%s, username=%s, role=%s, password_hash=%s, horas_laborales=%s WHERE id=%s"
+                cursor.execute(sql_update, (nombre, apellido, legajo, username, role, password_hash, horas_laborales, usuario_id))
             else:
-                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, legajo=%s, username=%s, role=%s WHERE id=%s"
-                cursor.execute(sql_update, (nombre, apellido, legajo, username, role, usuario_id))
+                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, legajo=%s, username=%s, role=%s, horas_laborales=%s WHERE id=%s"
+                cursor.execute(sql_update, (nombre, apellido, legajo, username, role, usuario_id, horas_laborales))
             
             cursor.execute("DELETE FROM huellas WHERE usuario_id = %s", (usuario_id,))
             if huellas_str:
@@ -202,7 +307,7 @@ def editar_usuario(usuario_id):
             else:
                 flash(f"Error de base de datos: {err}", "error")
             
-            usuario_a_editar = { 'id': usuario_id, 'nombre': nombre, 'apellido': apellido, 'legajo': legajo, 'username': username, 'role': role }
+            usuario_a_editar = { 'id': usuario_id, 'nombre': nombre, 'apellido': apellido, 'legajo': legajo, 'username': username, 'role': role, 'horas_laborales': horas_laborales }
             return render_template('editar_usuario.html', usuario=usuario_a_editar, huellas_str=huellas_str)
         
         finally:
@@ -211,7 +316,7 @@ def editar_usuario(usuario_id):
                 conn.close()
 
     try:
-        cursor.execute("SELECT id, nombre, apellido, legajo, username, role FROM usuarios WHERE id = %s", (usuario_id,))
+        cursor.execute("SELECT id, nombre, apellido, legajo, username, role, horas_laborales FROM usuarios WHERE id = %s", (usuario_id,))
         usuario_a_editar = cursor.fetchone()
         cursor.execute("SELECT huella_id FROM huellas WHERE usuario_id = %s", (usuario_id,))
         huellas_raw = cursor.fetchall()
@@ -264,6 +369,12 @@ def descargar_excel():
         start_date = f"{start_date_str} 00:00:00"
         end_date = f"{end_date_str} 23:59:59"
         
+        # Generar rango de fechas COMPLETO para el reporte
+        dt_start = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        dt_end = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        # pd.date_range crea todas las fechas intermedias
+        all_dates = pd.date_range(start=dt_start, end=dt_end).date
+
         try:
             start_date_obj = datetime.datetime.strptime(start_date_str, '%Y-%m-%d')
             meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
@@ -308,11 +419,8 @@ def descargar_excel():
 
         all_entradas = pd.concat([e_min, e_max])
         all_salidas = pd.concat([s_min, s_max])
-        
-        # Corrección: Definir columnas de unión antes de usar
         merge_cols = ['legajo', 'nombre', 'apellido', 'fecha', 'Turno']
         reporte_long_df = pd.merge(all_entradas, all_salidas, on=merge_cols, how='outer')
-        
         reporte_long_df = reporte_long_df.drop_duplicates(subset=['legajo', 'fecha', 'Entrada', 'Salida'])
         reporte_long_df['Apellido y Nombre'] = reporte_long_df['apellido'].fillna('') + ', ' + reporte_long_df['nombre'].fillna('')
         
@@ -326,15 +434,22 @@ def descargar_excel():
              return redirect(url_for('admin.dashboard'))
 
         pivot_df = pivot_df.swaplevel(0, 1, axis=1).sort_index(axis=1)
+        
+        # --- AQUÍ ESTÁ LA MAGIA: REINDEXAR CON TODAS LAS FECHAS ---
+        # Creamos un MultiIndex con TODAS las fechas y las columnas Entrada/Salida
+        full_columns = pd.MultiIndex.from_product([all_dates, ['Entrada', 'Salida']], names=['fecha', 'tipo'])
+        # Reindexamos para forzar que aparezcan todas las fechas, incluso las vacías
+        pivot_df = pivot_df.reindex(columns=full_columns, fill_value='')
+        # ----------------------------------------------------------
+
         pivot_df = pivot_df.reindex(pd.Categorical(['Mañana', 'Tarde'], ordered=True), level='Turno')
         pivot_df = pivot_df.sort_index(level=['legajo', 'Turno'])
         pivot_df = pivot_df.reset_index()
         
-        # Aplanar MultiIndex de columnas para evitar el error al exportar
+        # Aplanar MultiIndex
         new_cols = []
         for col in pivot_df.columns:
             if isinstance(col, tuple):
-                # Si es una tupla, la convertimos a string uniendo los elementos
                 new_cols.append('_'.join(map(str, col)).strip('_'))
             else:
                 new_cols.append(str(col))
@@ -342,7 +457,7 @@ def descargar_excel():
 
         output = BytesIO()
         writer = pd.ExcelWriter(output, engine='openpyxl')
-        pivot_df.to_excel(writer, sheet_name='Reporte Fichajes', startrow=2, header=False, index=False) 
+        pd.DataFrame().to_excel(writer, sheet_name='Reporte Fichajes', header=False, index=False)
         
         workbook = writer.book
         worksheet = writer.sheets['Reporte Fichajes']
@@ -366,11 +481,9 @@ def descargar_excel():
 
         cell_a1 = worksheet['A1']; cell_a1.value = f"Mar del Plata - {month_name}"; cell_a1.font = bold_font; cell_a1.fill = silver_fill; cell_a1.border = border_R1; cell_a1.alignment = Alignment(horizontal='center')
         worksheet.merge_cells('A1:B1'); cell_b1 = worksheet['B1']; cell_b1.font = bold_font; cell_b1.fill = silver_fill; cell_b1.border = border_R1; cell_b1.alignment = Alignment(horizontal='center')
-        fechas_unicas = sorted(list(set([col for col in pivot_df.columns if isinstance(col, str) and col[0].isdigit()])))
         
-        # Nota: La lógica de fechas únicas para columnas puede necesitar ajuste tras aplanar
-        # Recuperamos las fechas originales antes de aplanar para iterar columnas
-        fechas_reales = sorted(list(set(reporte_long_df['fecha'])))
+        # Usamos all_dates en lugar de fechas del DF para el bucle de encabezados
+        fechas_reales = sorted(all_dates)
         
         col_idx = 3
         for fecha in fechas_reales:
@@ -387,6 +500,7 @@ def descargar_excel():
             col_idx += 2
         current_excel_row = 3
         
+        # Agrupar por las columnas que ahora son strings tras aplanar
         for (legajo, apellido_nombre), group in pivot_df.groupby(['legajo', 'Apellido y Nombre']):
             row_am = group[group['Turno'] == 'Mañana']; row_pm = group[group['Turno'] == 'Tarde']
             
@@ -397,27 +511,25 @@ def descargar_excel():
             worksheet.merge_cells(start_row=current_excel_row, start_column=2, end_row=current_excel_row + 1, end_column=2)
             worksheet.cell(row=current_excel_row+1, column=2).border = border_nombre_bottom
             col_idx = 3
-            
             for fecha in fechas_reales:
+                # Reconstruir el nombre de columna aplanado
                 fecha_str = str(fecha)
                 col_ent = f"{fecha_str}_Entrada"
                 col_sal = f"{fecha_str}_Salida"
                 
-                # Datos Mañana
-                val_e = row_am[col_ent].values[0] if not row_am.empty and col_ent in row_am else ''
-                cell_e_am = worksheet.cell(row=current_excel_row, column=col_idx, value=val_e); cell_e_am.border = border_data_entrada_am; cell_e_am.alignment = Alignment(horizontal='center')
-                val_s = row_am[col_sal].values[0] if not row_am.empty and col_sal in row_am else ''
-                cell_s_am = worksheet.cell(row=current_excel_row, column=col_idx + 1, value=val_s); cell_s_am.border = border_data_salida_am; cell_s_am.alignment = Alignment(horizontal='center')
-                
-                # Datos Tarde (Fila siguiente)
-                val_e_pm = row_pm[col_ent].values[0] if not row_pm.empty and col_ent in row_pm else ''
-                cell_e_pm = worksheet.cell(row=current_excel_row+1, column=col_idx, value=val_e_pm); cell_e_pm.border = border_data_entrada_pm; cell_e_pm.alignment = Alignment(horizontal='center')
-                val_s_pm = row_pm[col_sal].values[0] if not row_pm.empty and col_sal in row_pm else ''
-                cell_s_pm = worksheet.cell(row=current_excel_row+1, column=col_idx + 1, value=val_s_pm); cell_s_pm.border = border_data_salida_pm; cell_s_pm.alignment = Alignment(horizontal='center')
-                
+                val_e = row_am[col_ent].values[0] if not row_am.empty and col_ent in row_am else ''; cell_e_am = worksheet.cell(row=current_excel_row, column=col_idx, value=val_e); cell_e_am.border = border_data_entrada_am; cell_e_am.alignment = Alignment(horizontal='center')
+                val_s = row_am[col_sal].values[0] if not row_am.empty and col_sal in row_am else ''; cell_s_am = worksheet.cell(row=current_excel_row, column=col_idx + 1, value=val_s); cell_s_am.border = border_data_salida_am; cell_s_am.alignment = Alignment(horizontal='center')
                 col_idx += 2
-            current_excel_row += 2
-            
+            current_excel_row += 1
+            col_idx = 3
+            for fecha in fechas_reales:
+                fecha_str = str(fecha)
+                col_ent = f"{fecha_str}_Entrada"
+                col_sal = f"{fecha_str}_Salida"
+                val_e = row_pm[col_ent].values[0] if not row_pm.empty and col_ent in row_pm else ''; cell_e_pm = worksheet.cell(row=current_excel_row, column=col_idx, value=val_e); cell_e_pm.border = border_data_entrada_pm; cell_e_pm.alignment = Alignment(horizontal='center')
+                val_s = row_pm[col_sal].values[0] if not row_pm.empty and col_sal in row_pm else ''; cell_s_pm = worksheet.cell(row=current_excel_row, column=col_idx + 1, value=val_s); cell_s_pm.border = border_data_salida_pm; cell_s_pm.alignment = Alignment(horizontal='center')
+                col_idx += 2
+            current_excel_row += 1
         worksheet.column_dimensions['B'].width = 30; worksheet.column_dimensions['A'].width = 15
 
         writer.close(); output.seek(0)
@@ -435,81 +547,131 @@ def descargar_log_pdf():
     try:
         start_date_str = request.form['log_start_date']
         end_date_str = request.form['log_end_date']
-        start_date = f"{start_date_str} 00:00:00"
-        end_date = f"{end_date_str} 23:59:59"
+        
+        # Convertir strings a objetos date
+        d_start = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        d_end = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        
+        # Generar lista de días en el rango
+        delta = d_end - d_start
+        lista_dias = [d_start + datetime.timedelta(days=i) for i in range(delta.days + 1)]
         
         user_role = session.get('role')
         user_id = session.get('user_id')
         
         conn = mysql.connector.connect(**Config.DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        sql_log = "SELECT f.timestamp, f.tipo, u.nombre, u.apellido, u.legajo FROM fichajes f JOIN usuarios u ON f.usuario_id = u.id WHERE f.timestamp BETWEEN %s AND %s"
-        params = [start_date, end_date]
-        if user_role != 'admin':
-            sql_log += " AND u.id = %s" 
-            params.append(user_id)
-        sql_log += " ORDER BY f.timestamp ASC"
-        cursor.execute(sql_log, params)
-        records = cursor.fetchall()
+        
+        # Diccionario para guardar los PDFs en memoria: { "nombre_archivo.pdf": bytes_pdf }
+        archivos_pdf = {}
+
+        for dia in lista_dias:
+            dia_str = dia.strftime('%Y-%m-%d')
+            start_limit = f"{dia_str} 00:00:00"
+            end_limit = f"{dia_str} 23:59:59"
+            
+            # Consulta SOLO para este día
+            sql_log = """
+                SELECT f.timestamp, f.tipo, u.nombre, u.apellido, u.legajo
+                FROM fichajes f
+                JOIN usuarios u ON f.usuario_id = u.id
+                WHERE f.timestamp BETWEEN %s AND %s
+            """
+            params = [start_limit, end_limit]
+            
+            if user_role != 'admin':
+                sql_log += " AND u.id = %s" 
+                params.append(user_id)
+                
+            sql_log += " ORDER BY f.timestamp ASC"
+            
+            cursor.execute(sql_log, params)
+            records = cursor.fetchall()
+            
+            # Si no hay registros ese día, podemos saltarlo o generar PDF vacío.
+            # Vamos a saltarlo para no llenar el ZIP de archivos vacíos.
+            if not records:
+                continue
+
+            # --- Generar PDF para este día ---
+            pdf = PDF()
+            pdf.alias_nb_pages()
+            pdf.add_page()
+            pdf.set_font('Arial', '', 10)
+            
+            # Título del día
+            fecha_fmt_titulo = dia.strftime('%d/%m/%Y')
+            pdf.cell(0, 10, f'Fecha: {fecha_fmt_titulo}', 0, 1, 'L')
+            pdf.ln(2)
+
+            pdf.set_fill_color(200, 220, 255)
+            pdf.set_font('Arial', 'B', 10)
+            
+            w_fecha, w_hora, w_tipo, w_legajo, w_nombre = 30, 25, 25, 25, 85
+            if user_role == 'admin':
+                pdf.cell(w_fecha, 7, 'Fecha', 1, 0, 'C', 1)
+                pdf.cell(w_hora, 7, 'Hora', 1, 0, 'C', 1)
+                pdf.cell(w_tipo, 7, 'Tipo', 1, 0, 'C', 1)
+                pdf.cell(w_legajo, 7, 'Legajo', 1, 0, 'C', 1)
+                pdf.cell(w_nombre, 7, 'Apellido y Nombre', 1, 1, 'C', 1)
+            else:
+                pdf.cell(w_fecha, 7, 'Fecha', 1, 0, 'C', 1)
+                pdf.cell(w_hora, 7, 'Hora', 1, 0, 'C', 1)
+                pdf.cell(w_tipo, 7, 'Tipo', 1, 1, 'C', 1)
+
+            pdf.set_font('Arial', '', 10)
+            for row in records:
+                fecha_fmt = row['timestamp'].strftime('%d/%m/%Y')
+                hora_fmt = row['timestamp'].strftime('%H:%M:%S')
+                nombre_completo = f"{row['apellido']}, {row['nombre']}"
+                tipo = row['tipo'].upper()
+
+                pdf.cell(w_fecha, 7, fecha_fmt, 1, 0, 'C')
+                pdf.cell(w_hora, 7, hora_fmt, 1, 0, 'C')
+                
+                if tipo == 'SALIDA': pdf.set_text_color(220, 50, 50)
+                else: pdf.set_text_color(0, 128, 0)
+                pdf.cell(w_tipo, 7, tipo, 1, 0, 'C')
+                pdf.set_text_color(0, 0, 0)
+                
+                if user_role == 'admin':
+                    pdf.cell(w_legajo, 7, str(row['legajo']), 1, 0, 'C')
+                    pdf.cell(w_nombre, 7, nombre_completo, 1, 1, 'L')
+                else:
+                    pdf.cell(0, 7, '', 0, 1, 'L') 
+
+            # Guardar PDF en memoria
+            pdf_bytes = pdf.output(dest='S').encode('latin-1')
+            nombre_archivo_dia = f"Registro primario asistencia Mar del Plata {dia.strftime('%d-%m-%Y')}.pdf"
+            archivos_pdf[nombre_archivo_dia] = pdf_bytes
+
         cursor.close()
         conn.close()
-
-        pdf = PDF()
-        pdf.alias_nb_pages()
-        pdf.add_page()
-        pdf.set_font('Arial', '', 10)
         
-        f_inicio = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
-        f_fin = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
-        pdf.cell(0, 10, f'Periodo: {f_inicio} al {f_fin}', 0, 1, 'L')
-        pdf.ln(2)
-
-        pdf.set_fill_color(200, 220, 255)
-        pdf.set_font('Arial', 'B', 10)
-        
-        w_fecha, w_hora, w_tipo, w_legajo, w_nombre = 30, 25, 25, 25, 85
-        if user_role == 'admin':
-            pdf.cell(w_fecha, 7, 'Fecha', 1, 0, 'C', 1)
-            pdf.cell(w_hora, 7, 'Hora', 1, 0, 'C', 1)
-            pdf.cell(w_tipo, 7, 'Tipo', 1, 0, 'C', 1)
-            pdf.cell(w_legajo, 7, 'Legajo', 1, 0, 'C', 1)
-            pdf.cell(w_nombre, 7, 'Apellido y Nombre', 1, 1, 'C', 1)
-        else:
-            pdf.cell(w_fecha, 7, 'Fecha', 1, 0, 'C', 1)
-            pdf.cell(w_hora, 7, 'Hora', 1, 0, 'C', 1)
-            pdf.cell(w_tipo, 7, 'Tipo', 1, 1, 'C', 1)
-
-        pdf.set_font('Arial', '', 10)
-        for row in records:
-            fecha_fmt = row['timestamp'].strftime('%d/%m/%Y')
-            hora_fmt = row['timestamp'].strftime('%H:%M:%S')
-            nombre_completo = f"{row['apellido']}, {row['nombre']}"
-            tipo = row['tipo'].upper()
-
-            pdf.cell(w_fecha, 7, fecha_fmt, 1, 0, 'C')
-            pdf.cell(w_hora, 7, hora_fmt, 1, 0, 'C')
-            if tipo == 'SALIDA': pdf.set_text_color(220, 50, 50)
-            else: pdf.set_text_color(0, 128, 0)
-            pdf.cell(w_tipo, 7, tipo, 1, 0, 'C')
-            pdf.set_text_color(0, 0, 0)
+        if not archivos_pdf:
+            flash("No se encontraron registros en los días seleccionados.", "error")
+            return redirect(url_for('admin.dashboard'))
             
-            if user_role == 'admin':
-                pdf.cell(w_legajo, 7, str(row['legajo']), 1, 0, 'C')
-                pdf.cell(w_nombre, 7, nombre_completo, 1, 1, 'L')
-            else:
-                pdf.cell(0, 7, '', 0, 1, 'L') 
-
-        output = BytesIO()
-        pdf_bytes = pdf.output(dest='S').encode('latin-1') 
-        output.write(pdf_bytes)
-        output.seek(0)
-        
-        fecha_actual = datetime.datetime.now().strftime('%d-%m-%Y')
-        nombre_archivo = f"Registro primario asistencia Mar del Plata {fecha_actual}.pdf"
-
-        return send_file(output, mimetype='application/pdf', as_attachment=True, download_name=nombre_archivo)
+        if len(archivos_pdf) == 1:
+            # Solo un archivo: Descargar PDF directo
+            nombre, contenido = list(archivos_pdf.items())[0]
+            output = BytesIO(contenido)
+            return send_file(output, mimetype='application/pdf', as_attachment=True, download_name=nombre)
+            
+        else:
+            # Varios archivos: Crear ZIP
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for nombre, contenido in archivos_pdf.items():
+                    zip_file.writestr(nombre, contenido)
+            
+            zip_buffer.seek(0)
+            nombre_zip = f"Registros_Fichajes_{start_date_str}_al_{end_date_str}.zip"
+            
+            return send_file(zip_buffer, mimetype='application/zip', as_attachment=True, download_name=nombre_zip)
 
     except Exception as e:
-        print(f"Error PDF: {e}")
-        flash("Error al generar PDF", "error")
+        print(f"Error PDF/ZIP: {e}")
+        import traceback; traceback.print_exc()
+        flash("Error al generar archivos", "error")
         return redirect(url_for('admin.dashboard'))

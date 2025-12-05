@@ -55,7 +55,11 @@
                 <input type="text" id="huellas" name="huellas" value="{{ huellas_str or '' }}" placeholder="Ej: 1, 5, 8">
                 <small>IDs únicos que el sensor debe reconocer para esta persona.</small>
             </div>
-            
+            <div class="form-group">
+                <label for="horas_laborales">Horas Laborales Diarias:</label>
+                <!-- Valor por defecto 8 horas -->
+                <input type="time" id="horas_laborales" name="horas_laborales" value="{{ form_data.get('horas_laborales', '08:00') }}" required>
+            </div>
             <div class="form-group">
                 <label for="username">Email (Será su usuario de login):</label>
                 <input type="email" id="username" name="username" value="{{ form_data.get('username', '') }}" required>
