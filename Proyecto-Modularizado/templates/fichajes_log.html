@@ -79,17 +79,19 @@
             </thead>
             <tbody>
                 {% for record in records %}
-                <!-- APLICAMOS LA CLASE SI HAY ALERTA -->
-                <tr class="{{ 'row-alert-yellow' if record.alerta_amarilla else ('row-alert' if record.alerta else '') }}">
+                <!-- APLICAMOS LA CLASE SI HAY ALERTA (SOLO ADMIN) -->
+                <tr class="{{ ('row-alert-yellow' if record.alerta_amarilla else ('row-alert' if record.alerta else '')) if user_role == 'admin' else '' }}">
                     <td>{{ record.fecha }}</td> 
                     <td>{{ record.hora }}</td>
                     <td class="{{ 'entrada' if record.tipo == 'entrada' else 'salida' }}">
                         {{ record.tipo | upper }}
-                        <!-- Ícono de alerta opcional -->
-                        {% if record.alerta_amarilla %}
-                            <span class="alert-icon" title="Fichaje impar (falta cierre)">⚠️</span>
-                        {% elif record.alerta %}
-                            <span class="alert-icon" title="Jornada incompleta (menos del horario requerido)">⚠️</span>
+                        <!-- Ícono de alerta opcional (SOLO ADMIN) -->
+                        {% if user_role == 'admin' %}
+                            {% if record.alerta_amarilla %}
+                                <span class="alert-icon" title="Fichaje impar (falta cierre)">⚠️</span>
+                            {% elif record.alerta %}
+                                <span class="alert-icon" title="Jornada incompleta (menos del horario requerido)">⚠️</span>
+                            {% endif %}
                         {% endif %}
                     </td>
                     

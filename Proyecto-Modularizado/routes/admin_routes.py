@@ -229,8 +229,6 @@ def crear_usuario():
             """
             cursor.execute(sql_insert_user, (nombre, apellido, legajo, horas_laborales, username, password_hash, role))
             new_user_id = cursor.lastrowid
-            cursor.execute(sql_insert_user, (nombre, apellido, legajo, username, password_hash, role))
-            new_user_id = cursor.lastrowid
             
             if new_user_id and huellas_str:
                 huellas_list = [h.strip() for h in huellas_str.split(',') if h.strip().isdigit()]

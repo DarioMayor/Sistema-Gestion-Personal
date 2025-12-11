@@ -128,15 +128,16 @@
                 <td class="{{ 'entrada' if f.tipo == 'entrada' else 'salida' }}">
                     {{ f.tipo | upper }}
                 </td>
-                <td style="display: flex; gap: 5px;">
+                <td style="display: flex; gap: 5px; align-items: center;">
                     <!-- Botón Editar -->
                     <a href="/admin/fichajes/editar/{{ f.id }}" class="btn btn-edit">Editar</a>
                     
                     <!-- Botón Eliminar -->
-                    <form action="/admin/fichajes/eliminar/{{ f.id }}" method="POST" onsubmit="return confirm('¿Borrar este fichaje?');">
+                    <form action="/admin/fichajes/eliminar/{{ f.id }}" method="POST" onsubmit="return confirm('¿Borrar este fichaje?');" style="margin: 0;">
                         <input type="hidden" name="fecha_retorno" value="{{ fecha_seleccionada }}">
                         <button type="submit" class="btn btn-delete">X</button>
                     </form>
+                    
                     <!-- NUEVO: Botón Historial (Relojito) -->
                     {% if f.num_modificaciones > 0 %}
                     <a href="{{ url_for('fichajes.ver_historial', fichaje_id=f.id) }}" 
