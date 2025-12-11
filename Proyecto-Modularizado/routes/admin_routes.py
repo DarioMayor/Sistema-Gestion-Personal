@@ -160,8 +160,7 @@ def ver_fichajes():
                     record['alerta'] = True
                 else:
                     record['alerta'] = False
-                
-                # La alerta amarilla ya se calculó individualmente en el paso anterior
+
                 if 'alerta_amarilla' not in record:
                     record['alerta_amarilla'] = False
             

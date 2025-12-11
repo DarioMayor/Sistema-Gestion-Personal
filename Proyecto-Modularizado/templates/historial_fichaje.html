@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Historial de Modificaciones</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #fff; }
+        h2 { margin-top: 0; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .no-data { color: #666; font-style: italic; }
+        .btn-close { display: block; margin-top: 20px; padding: 10px; background: #333; color: #fff; text-decoration: none; text-align: center; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h2>Historial de Cambios (ID: {{ fichaje_id }})</h2>
+    
+    {% if historial %}
+    <table>
+        <thead>
+            <tr>
+                <th>Fecha Modificación</th>
+                <th>Modificado Por</th>
+                <th>Valor Original</th>
+                <th>Tipo Original</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for h in historial %}
+            <tr>
+                <td>{{ h.fecha_mod }}</td>
+                <td>{{ h.modificado_por }}</td>
+                <td>{{ h.fecha_orig }}</td>
+                <td>{{ h.tipo_original | upper }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p class="no-data">Este fichaje nunca ha sido modificado.</p>
+    {% endif %}
+
+    <a href="javascript:window.close();" class="btn-close">Cerrar Ventana</a>
+</body>
+</html>

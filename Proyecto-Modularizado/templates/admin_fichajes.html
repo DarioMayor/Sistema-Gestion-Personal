@@ -137,6 +137,16 @@
                         <input type="hidden" name="fecha_retorno" value="{{ fecha_seleccionada }}">
                         <button type="submit" class="btn btn-delete">X</button>
                     </form>
+                    <!-- NUEVO: Botón Historial (Relojito) -->
+                    {% if f.num_modificaciones > 0 %}
+                    <a href="{{ url_for('fichajes.ver_historial', fichaje_id=f.id) }}" 
+                        onclick="window.open(this.href, 'Historial', 'width=800,height=500'); return false;" 
+                        class="btn" 
+                        style="background-color: #17a2b8; font-weight:bold; color: white; padding: 6px 10px; border-radius: 4px; text-decoration: none;" 
+                        title="Ver historial de cambios">
+                            🕒
+                    </a>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
