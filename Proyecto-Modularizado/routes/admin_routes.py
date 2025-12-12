@@ -382,40 +382,42 @@ def descargar_excel():
         conn = mysql.connector.connect(**Config.DB_CONFIG)
         sql_query = """SELECT u.legajo, u.nombre, u.apellido, f.timestamp, f.tipo FROM fichajes f JOIN usuarios u ON f.usuario_id = u.id WHERE f.timestamp BETWEEN %s AND %s ORDER BY u.legajo, f.timestamp"""
         df = pd.read_sql(sql_query, conn, params=(start_date, end_date))
+        
+        # NUEVO: Traer todos los usuarios para asegurar que aparezcan en el reporte
+        users_query = "SELECT legajo, nombre, apellido FROM usuarios ORDER BY legajo"
+        all_users_df = pd.read_sql(users_query, conn)
+        
         conn.close()
 
-        if df.empty:
-            flash("No se encontraron fichajes.", "error")
-            return redirect(url_for('admin.dashboard'))
-
-        df['fecha'] = df['timestamp'].dt.date
-        df['hora'] = df['timestamp'].dt.time
+        # (Eliminado check de df.empty para permitir reporte vacío con usuarios)
+        
+        if 'timestamp' in df.columns:
+            df['fecha'] = df['timestamp'].dt.date
+            df['hora'] = df['timestamp'].dt.time
+        else:
+            # Caso borde: df vacío sin columnas correctas (aunque read_sql suele traerlas)
+            df['fecha'] = []
+            df['hora'] = []
         
         entradas_df = df[df['tipo'] == 'entrada']
         salidas_df = df[df['tipo'] == 'salida']
         common_cols = ['legajo', 'nombre', 'apellido', 'fecha']
         
+        # MODIFICADO: Solo primera entrada y última salida del día
+        # Tomamos la primera entrada (min) y la última salida (max)
         e_min = entradas_df.groupby(common_cols)['hora'].min().reset_index().rename(columns={'hora': 'Entrada'})
-        s_min = salidas_df.groupby(common_cols)['hora'].min().reset_index().rename(columns={'hora': 'Salida'})
-        e_max = entradas_df.groupby(common_cols)['hora'].max().reset_index().rename(columns={'hora': 'Entrada'})
         s_max = salidas_df.groupby(common_cols)['hora'].max().reset_index().rename(columns={'hora': 'Salida'})
 
-        # Limpieza duplicados
-        e_max = pd.merge(e_max, e_min, on=common_cols, suffixes=('', '_min'), how='left')
-        mask_e = e_max['Entrada'] == e_max['Entrada_min']
-        e_max.loc[mask_e, 'Entrada'] = None 
-        e_max = e_max.drop(columns=['Entrada_min'])
+        # Asignamos ambas al turno 'Mañana' para que aparezcan en la primera fila
+        e_min['Turno'] = 'Mañana'
+        s_max['Turno'] = 'Mañana'
+
+        # Ya no usamos e_max (última entrada) ni s_min (primera salida) ni el turno Tarde con datos
+        all_entradas = e_min
+        all_salidas = s_max
         
-        s_max = pd.merge(s_max, s_min, on=common_cols, suffixes=('', '_min'), how='left')
-        mask_s = s_max['Salida'] == s_max['Salida_min']
-        s_max.loc[mask_s, 'Salida'] = None 
-        s_max = s_max.drop(columns=['Salida_min'])
-
-        e_min['Turno'] = 'Mañana'; e_max['Turno'] = 'Tarde'
-        s_min['Turno'] = 'Mañana'; s_max['Turno'] = 'Tarde'
-
-        all_entradas = pd.concat([e_min, e_max])
-        all_salidas = pd.concat([s_min, s_max])
+        merge_cols = ['legajo', 'nombre', 'apellido', 'fecha', 'Turno']
+        reporte_long_df = pd.merge(all_entradas, all_salidas, on=merge_cols, how='outer')
         merge_cols = ['legajo', 'nombre', 'apellido', 'fecha', 'Turno']
         reporte_long_df = pd.merge(all_entradas, all_salidas, on=merge_cols, how='outer')
         reporte_long_df = reporte_long_df.drop_duplicates(subset=['legajo', 'fecha', 'Entrada', 'Salida'])
@@ -426,20 +428,30 @@ def descargar_excel():
 
         pivot_df = reporte_long_df.pivot_table(index=['legajo', 'Apellido y Nombre', 'Turno'], columns='fecha', values=['Entrada', 'Salida'], aggfunc='first', fill_value='')
         
-        if pivot_df.empty:
-             flash("No hay datos para generar el reporte.", "error")
-             return redirect(url_for('admin.dashboard'))
+        # (Eliminado check de pivot_df.empty para permitir reporte vacío con usuarios)
+
 
         pivot_df = pivot_df.swaplevel(0, 1, axis=1).sort_index(axis=1)
         
-        # --- AQUÍ ESTÁ LA MAGIA: REINDEXAR CON TODAS LAS FECHAS ---
-        # Creamos un MultiIndex con TODAS las fechas y las columnas Entrada/Salida
+        # --- AQUÍ ESTÁ LA MAGIA: REINDEXAR CON TODAS LAS FECHAS Y TODOS LOS USUARIOS ---
+        # 1. Columnas: Todas las fechas del rango
         full_columns = pd.MultiIndex.from_product([all_dates, ['Entrada', 'Salida']], names=['fecha', 'tipo'])
-        # Reindexamos para forzar que aparezcan todas las fechas, incluso las vacías
         pivot_df = pivot_df.reindex(columns=full_columns, fill_value='')
+        
+        # 2. Filas: Todos los usuarios (Mañana y Tarde)
+        all_users_df['Apellido y Nombre'] = all_users_df['apellido'].fillna('') + ', ' + all_users_df['nombre'].fillna('')
+        
+        index_tuples = []
+        for _, row in all_users_df.iterrows():
+            index_tuples.append((row['legajo'], row['Apellido y Nombre'], 'Mañana'))
+            index_tuples.append((row['legajo'], row['Apellido y Nombre'], 'Tarde'))
+            
+        full_index = pd.MultiIndex.from_tuples(index_tuples, names=['legajo', 'Apellido y Nombre', 'Turno'])
+        pivot_df = pivot_df.reindex(index=full_index, fill_value='')
         # ----------------------------------------------------------
 
-        pivot_df = pivot_df.reindex(pd.Categorical(['Mañana', 'Tarde'], ordered=True), level='Turno')
+        # pivot_df = pivot_df.reindex(pd.Categorical(['Mañana', 'Tarde'], ordered=True), level='Turno') # Ya no es necesario reordenar nivel, el índice completo ya tiene el orden
+
         pivot_df = pivot_df.sort_index(level=['legajo', 'Turno'])
         pivot_df = pivot_df.reset_index()
         
