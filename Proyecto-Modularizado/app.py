@@ -9,6 +9,10 @@ from routes.main_routes import main_bp
 from routes.admin_routes import admin_bp
 from routes.fichajes_routes import fichajes_bp
 
+import webbrowser
+from threading import Timer
+import os
+
 app = Flask(__name__)
 app.config.from_object(Config)
 
@@ -31,6 +35,13 @@ def format_date_html_filter(date_str):
         return date_str
 app.jinja_env.filters['format_date_html'] = format_date_html_filter
 
+def open_browser():
+    print("Abriendo navegador en el Monitor...")
+    webbrowser.open_new('http://localhost:5000/monitor')
+
 if __name__ == "__main__":
     print("Iniciando servidor Modular...")
+    # Evitar que se abra dos veces al usar debug=True (reloader del servidor flask)
+    if not os.environ.get("WERKZEUG_RUN_MAIN"):
+        Timer(1.5, open_browser).start()
     socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
