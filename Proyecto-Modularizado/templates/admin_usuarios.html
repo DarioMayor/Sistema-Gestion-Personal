@@ -61,6 +61,7 @@
                 <th>Apellido y Nombre</th>
                 <th>Legajo</th>
                 <th>Email (Usuario)</th>
+                <th>Horas Laborales</th>
                 <th>Rol</th>
                 <th>Acciones</th>
             </tr>
@@ -72,6 +73,7 @@
                 <td>{{ user.apellido }}, {{ user.nombre }}</td>
                 <td>{{ user.legajo }}</td>
                 <td>{{ user.username }}</td>
+                <td>{{ user.horas_laborales }}</td>
                 <td>
                     {% if user.role == 'admin' %}
                         <span style="color: #d63384; font-weight: bold;">Admin</span>

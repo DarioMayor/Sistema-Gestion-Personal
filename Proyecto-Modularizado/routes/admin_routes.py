@@ -192,7 +192,7 @@ def admin_usuarios():
     try:
         conn = mysql.connector.connect(**Config.DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, nombre, apellido, legajo, username, role FROM usuarios ORDER BY apellido, nombre")
+        cursor.execute("SELECT id, nombre, apellido, legajo, username, role, horas_laborales FROM usuarios ORDER BY apellido, nombre")
         lista_de_usuarios = cursor.fetchall()
         cursor.close()
         conn.close()
