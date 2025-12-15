@@ -58,9 +58,9 @@
         <thead>
             <tr>
                 <th>ID</th>
+                <th>Legajo</th>                
                 <th>Apellido y Nombre</th>
-                <th>Legajo</th>
-                <th>Email (Usuario)</th>
+                <th>Email</th>
                 <th>Horas Laborales</th>
                 <th>Rol</th>
                 <th>Acciones</th>
@@ -70,9 +70,9 @@
             {% for user in usuarios %}
             <tr>
                 <td>{{ user.id }}</td>
-                <td>{{ user.apellido }}, {{ user.nombre }}</td>
                 <td>{{ user.legajo }}</td>
-                <td>{{ user.username }}</td>
+                <td>{{ user.apellido }}, {{ user.nombre }}</td>
+                <td>{{ user.email or '-' }}</td>
                 <td>{{ user.horas_laborales }}</td>
                 <td>
                     {% if user.role == 'admin' %}

@@ -22,7 +22,7 @@ def dashboard():
         return redirect(url_for('auth.login'))
 
     contexto = {
-        'username': session['username'],
+        'username': session.get('legajo', 'Usuario'), # Mostramos legajo en lugar de username/email
         'role': session['role'],
         'nombre': session['nombre'],
         'apellido': session['apellido']
@@ -192,7 +192,7 @@ def admin_usuarios():
     try:
         conn = mysql.connector.connect(**Config.DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, nombre, apellido, legajo, username, role, horas_laborales FROM usuarios ORDER BY apellido, nombre")
+        cursor.execute("SELECT id, nombre, apellido, legajo, username as email, role, horas_laborales FROM usuarios ORDER BY apellido, nombre")
         lista_de_usuarios = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -211,7 +211,9 @@ def crear_usuario():
         nombre = request.form['nombre']
         apellido = request.form['apellido']
         legajo = request.form['legajo']
-        username = request.form['username']
+        email = request.form.get('email') # Opcional
+        if not email:
+            email = None
         password = request.form['password']
         role = request.form['role']
         huellas_str = request.form.get('huellas', '')
@@ -223,11 +225,12 @@ def crear_usuario():
         cursor = conn.cursor()
         
         try:
+            # Usamos 'username' en lugar de 'email' en la DB (columna original)
             sql_insert_user = """
                 INSERT INTO usuarios (nombre, apellido, legajo, horas_laborales, username, password_hash, role) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(sql_insert_user, (nombre, apellido, legajo, horas_laborales, username, password_hash, role))
+            cursor.execute(sql_insert_user, (nombre, apellido, legajo, horas_laborales, email, password_hash, role))
             new_user_id = cursor.lastrowid
             
             if new_user_id and huellas_str:
@@ -238,7 +241,7 @@ def crear_usuario():
                         cursor.execute(sql_insert_huella, (huella_id, new_user_id))
             
             conn.commit()
-            flash(f"Usuario '{username}' creado exitosamente.", "success")
+            flash(f"Usuario '{legajo}' creado exitosamente.", "success")
             return redirect(url_for('admin.admin_usuarios'))
         
         except mysql.connector.Error as err:
@@ -270,7 +273,9 @@ def editar_usuario(usuario_id):
         nombre = request.form['nombre']
         apellido = request.form['apellido']
         legajo = request.form['legajo']
-        username = request.form['username']
+        email = request.form.get('email') # Opcional
+        if not email:
+            email = None
         role = request.form['role']
         nueva_password = request.form['nueva_password']
         huellas_str = request.form.get('huellas', '')
@@ -280,10 +285,10 @@ def editar_usuario(usuario_id):
             if nueva_password:
                 password_hash = generate_password_hash(nueva_password)
                 sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, legajo=%s, username=%s, role=%s, password_hash=%s, horas_laborales=%s WHERE id=%s"
-                cursor.execute(sql_update, (nombre, apellido, legajo, username, role, password_hash, horas_laborales, usuario_id))
+                cursor.execute(sql_update, (nombre, apellido, legajo, email, role, password_hash, horas_laborales, usuario_id))
             else:
                 sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, legajo=%s, username=%s, role=%s, horas_laborales=%s WHERE id=%s"
-                cursor.execute(sql_update, (nombre, apellido, legajo, username, role, usuario_id, horas_laborales))
+                cursor.execute(sql_update, (nombre, apellido, legajo, email, role, horas_laborales, usuario_id))
             
             cursor.execute("DELETE FROM huellas WHERE usuario_id = %s", (usuario_id,))
             if huellas_str:
@@ -294,7 +299,7 @@ def editar_usuario(usuario_id):
                         cursor.execute(sql_insert_huella, (huella_id, usuario_id))
             
             conn.commit()
-            flash(f"Usuario '{username}' actualizado exitosamente.", "success")
+            flash(f"Usuario '{legajo}' actualizado exitosamente.", "success")
             return redirect(url_for('admin.admin_usuarios'))
         
         except mysql.connector.Error as err:
@@ -304,7 +309,7 @@ def editar_usuario(usuario_id):
             else:
                 flash(f"Error de base de datos: {err}", "error")
             
-            usuario_a_editar = { 'id': usuario_id, 'nombre': nombre, 'apellido': apellido, 'legajo': legajo, 'username': username, 'role': role, 'horas_laborales': horas_laborales }
+            usuario_a_editar = { 'id': usuario_id, 'nombre': nombre, 'apellido': apellido, 'legajo': legajo, 'email': email, 'role': role, 'horas_laborales': horas_laborales }
             return render_template('editar_usuario.html', usuario=usuario_a_editar, huellas_str=huellas_str)
         
         finally:
@@ -313,7 +318,7 @@ def editar_usuario(usuario_id):
                 conn.close()
 
     try:
-        cursor.execute("SELECT id, nombre, apellido, legajo, username, role, horas_laborales FROM usuarios WHERE id = %s", (usuario_id,))
+        cursor.execute("SELECT id, nombre, apellido, legajo, username as email, role, horas_laborales FROM usuarios WHERE id = %s", (usuario_id,))
         usuario_a_editar = cursor.fetchone()
         cursor.execute("SELECT huella_id FROM huellas WHERE usuario_id = %s", (usuario_id,))
         huellas_raw = cursor.fetchall()
@@ -323,6 +328,21 @@ def editar_usuario(usuario_id):
             flash("Error: Usuario no encontrado.", "error")
             return redirect(url_for('admin.admin_usuarios'))
             
+        # Formatear horas_laborales para el input type="time" (HH:MM)
+        if usuario_a_editar.get('horas_laborales'):
+            hl = usuario_a_editar['horas_laborales']
+            if isinstance(hl, datetime.timedelta):
+                total_seconds = int(hl.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                usuario_a_editar['horas_laborales'] = f"{hours:02}:{minutes:02}"
+            else:
+                # Si ya es string, asegurar formato HH:MM (por si viene H:MM:SS)
+                str_hl = str(hl)
+                parts = str_hl.split(':')
+                if len(parts) >= 2:
+                    usuario_a_editar['horas_laborales'] = f"{int(parts[0]):02}:{int(parts[1]):02}"
+
         return render_template('editar_usuario.html', usuario=usuario_a_editar, huellas_str=huellas_str)
     
     except mysql.connector.Error as err:

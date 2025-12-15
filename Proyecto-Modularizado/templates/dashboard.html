@@ -37,8 +37,11 @@
     <div class="navbar">
         <h1>Panel de Fichajes</h1>
         <div>
-            Logueado como: <strong>{{ username }}</strong> ({{ role }}) 
+            Logueado como: <strong>{{ nombre }} {{ apellido }}</strong> ({{ role }}) 
             &nbsp; | &nbsp;
+            {% if role != 'admin' %}
+                <a href="/perfil" style="color: #add8e6;">Modificar Usuario</a> &nbsp; | &nbsp;
+            {% endif %}
             <a href="/logout">Cerrar Sesión</a>
         </div>
     </div>

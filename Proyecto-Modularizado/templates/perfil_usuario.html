@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Mi Perfil</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px; }
+        .container { background: #fff; padding: 20px 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 500px; margin: auto; }
+        h1 { color: #333; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .form-group input[readonly] { background-color: #e9ecef; cursor: not-allowed; }
+        .btn-bar { margin-top: 20px; display: flex; justify-content: space-between; }
+        .btn { padding: 10px 15px; text-decoration: none; border-radius: 4px; color: white; border: none; cursor: pointer; }
+        .btn-save { background-color: #007bff; }
+        .btn-cancel { background-color: #6c757d; }
+        .flash { padding: 10px; margin-bottom: 20px; border-radius: 4px; border: 1px solid; }
+        .flash.error { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+        .flash.success { background: #d4edda; color: #155724; border-color: #c3e6cb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Mi Perfil</h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+        
+        <form action="/perfil" method="POST">
+            <div class="form-group">
+                <label for="nombre">Nombre:</label>
+                <input type="text" id="nombre" value="{{ usuario.nombre }}" readonly>
+            </div>
+            <div class="form-group">
+                <label for="apellido">Apellido:</label>
+                <input type="text" id="apellido" value="{{ usuario.apellido }}" readonly>
+            </div>
+            <div class="form-group">
+                <label for="legajo">Número de Legajo:</label>
+                <input type="text" id="legajo" value="{{ usuario.legajo }}" readonly>
+            </div>
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="text" id="email" value="{{ usuario.email or 'No asignado' }}" readonly>
+            </div>
+            <div class="form-group">
+                <label for="horas_laborales">Horas Laborales Diarias:</label>
+                <input type="text" id="horas_laborales" value="{{ usuario.horas_laborales }}" readonly>
+            </div>
+            
+            <hr>
+            <h3>Cambiar Contraseña</h3>
+            <div class="form-group">
+                <label for="nueva_password">Nueva Contraseña:</label>
+                <input type="password" id="nueva_password" name="nueva_password" placeholder="Dejar en blanco para no cambiar">
+            </div>
+            <div class="form-group">
+                <label for="confirmar_password">Confirmar Nueva Contraseña:</label>
+                <input type="password" id="confirmar_password" name="confirmar_password" placeholder="Repetir contraseña">
+            </div>
+
+            <div class="btn-bar">
+                <a href="/dashboard" class="btn btn-cancel">Volver</a>
+                <button type="submit" class="btn btn-save">Guardar Cambios</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
