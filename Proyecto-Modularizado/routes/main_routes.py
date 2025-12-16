@@ -3,6 +3,43 @@ import mysql.connector
 import datetime
 from config import Config
 from extensions import socketio # Importamos la instancia compartida
+import threading
+import os
+import time
+from gtts import gTTS
+import pygame
+import uuid
+
+# Inicializar pygame mixer para el audio
+try:
+    pygame.mixer.init()
+except Exception as e:
+    print(f"Advertencia: No se pudo inicializar el audio: {e}")
+
+def reproducir_audio(texto):
+    try:
+        # Generar audio con gTTS
+        tts = gTTS(text=texto, lang='es')
+        filename = f"temp_audio_{uuid.uuid4()}.mp3"
+        tts.save(filename)
+        
+        # Reproducir con pygame
+        pygame.mixer.music.load(filename)
+        pygame.mixer.music.play()
+        
+        # Esperar a que termine
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.1)
+            
+        pygame.mixer.music.unload()
+        os.remove(filename)
+    except Exception as e:
+        print(f"Error al reproducir audio: {e}")
+        if 'filename' in locals() and os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except:
+                pass
 
 main_bp = Blueprint('main', __name__)
 
@@ -94,6 +131,15 @@ def recibir_fichaje():
             datos_para_monitor['timestamp'] = datos_para_monitor['timestamp'].isoformat()
             socketio.emit('nuevo_fichaje', datos_para_monitor)
             print("Evento WebSocket emitido.")
+
+            # --- AUDIO TTS ---
+            try:
+                nombre = datos_para_monitor['nombre']
+                # Mensaje simple sin genero
+                mensaje = f"Bienvenido {nombre}" if nuevo_tipo == "entrada" else f"Hasta luego {nombre}"
+                threading.Thread(target=reproducir_audio, args=(mensaje,)).start()
+            except Exception as e:
+                print(f"Error lanzando hilo de audio: {e}")
             
         print("-----------------------\n")
         cursor.close()
