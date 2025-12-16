@@ -52,9 +52,24 @@
 
     <div class="container">
         <div class="header-actions">
-            <h2>Log Cronológico: {{ start_date | format_date_html }} al {{ end_date | format_date_html }}</h2>
+            <h2>Log Cronológico: {{ start_date }} al {{ end_date }}</h2>
             
+            <!-- Filtro de Usuario (Solo Admin) -->
             {% if user_role == 'admin' %}
+            <form action="/ver_fichajes" method="POST" style="display: inline-block; margin-right: 10px;">
+                <input type="hidden" name="log_start_date" value="{{ start_date }}">
+                <input type="hidden" name="log_end_date" value="{{ end_date }}">
+                
+                <select name="filtro_usuario" onchange="this.form.submit()" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="">-- Todos los Usuarios --</option>
+                    {% for u in usuarios_filtro %}
+                        <option value="{{ u.id }}" {% if filtro_usuario_id|string == u.id|string %}selected{% endif %}>
+                            {{ u.apellido }}, {{ u.nombre }} ({{ u.legajo }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </form>
+
             <form action="{{ url_for('admin.descargar_log_pdf') }}" method="POST" class="pdf-form">
                 <input type="hidden" name="log_start_date" value="{{ start_date }}">
                 <input type="hidden" name="log_end_date" value="{{ end_date }}">

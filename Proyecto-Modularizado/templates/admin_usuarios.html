@@ -76,7 +76,9 @@
                 <td>{{ user.horas_laborales }}</td>
                 <td>
                     {% if user.role == 'admin' %}
-                        <span style="color: #d63384; font-weight: bold;">Admin</span>
+                        <span style="color: #FF2600; font-weight: bold;">Admin</span>
+                    {% elif user.role == 'otro' %}
+                        <span style="color: #fd7e14; font-weight: bold;">Otro</span>
                     {% else %}
                         <span style="color: #6c757d;">Usuario</span>
                     {% endif %}

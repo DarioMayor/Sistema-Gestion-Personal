@@ -21,11 +21,25 @@ def dashboard():
     if 'logged_in' not in session:
         return redirect(url_for('auth.login'))
 
+    # Obtener lista de usuarios para el filtro (solo si es admin)
+    usuarios_filtro = []
+    if session['role'] == 'admin':
+        try:
+            conn = mysql.connector.connect(**Config.DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id, nombre, apellido, legajo FROM usuarios ORDER BY apellido, nombre")
+            usuarios_filtro = cursor.fetchall()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            print(f"Error cargando usuarios para filtro: {e}")
+
     contexto = {
         'username': session.get('legajo', 'Usuario'), # Mostramos legajo en lugar de username/email
         'role': session['role'],
         'nombre': session['nombre'],
-        'apellido': session['apellido']
+        'apellido': session['apellido'],
+        'usuarios_filtro': usuarios_filtro # Pasamos la lista al template
     }
     return render_template('dashboard.html', **contexto)
 
@@ -39,6 +53,8 @@ def ver_fichajes():
         
         start_date = f"{start_date_str} 00:00:00"
         end_date = f"{end_date_str} 23:59:59"
+        
+        filtro_usuario_id = request.form.get('filtro_usuario') # Nuevo filtro opcional
 
         conn = mysql.connector.connect(**Config.DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
@@ -59,12 +75,21 @@ def ver_fichajes():
         
         if user_role != 'admin':
             sql_log += " AND u.id = %s" 
-            params.append(user_id)      
+            params.append(user_id)
+        elif filtro_usuario_id: # Si es admin y seleccionó un usuario
+            sql_log += " AND u.id = %s"
+            params.append(filtro_usuario_id)
             
         sql_log += " ORDER BY f.timestamp ASC"
         
         cursor.execute(sql_log, params)
         log_records = cursor.fetchall()
+        
+        # Obtener lista de usuarios para el filtro (solo si es admin)
+        usuarios_filtro = []
+        if user_role == 'admin':
+            cursor.execute("SELECT id, nombre, apellido, legajo FROM usuarios ORDER BY apellido, nombre")
+            usuarios_filtro = cursor.fetchall()
         
         cursor.close()
         conn.close()
@@ -168,13 +193,14 @@ def ver_fichajes():
              f_inicio_display = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
              f_fin_display = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
              flash(f"No se encontraron fichajes entre {f_inicio_display} y {f_fin_display}.", "error")
-             return redirect(url_for('admin.dashboard'))
 
         return render_template('fichajes_log.html', 
                                records=log_records, 
                                start_date=start_date_str,
                                end_date=end_date_str,
-                               user_role=user_role)
+                               user_role=user_role,
+                               usuarios_filtro=usuarios_filtro,
+                               filtro_usuario_id=filtro_usuario_id)
 
     except mysql.connector.Error as err:
         flash(f"Error de base de datos al buscar log: {err}", "error")
@@ -400,11 +426,19 @@ def descargar_excel():
             month_name = ""
 
         conn = mysql.connector.connect(**Config.DB_CONFIG)
-        sql_query = """SELECT u.legajo, u.nombre, u.apellido, f.timestamp, f.tipo FROM fichajes f JOIN usuarios u ON f.usuario_id = u.id WHERE f.timestamp BETWEEN %s AND %s ORDER BY u.legajo, f.timestamp"""
+        # Excluir usuarios con rol 'otro'
+        sql_query = """
+            SELECT u.legajo, u.nombre, u.apellido, f.timestamp, f.tipo 
+            FROM fichajes f 
+            JOIN usuarios u ON f.usuario_id = u.id 
+            WHERE f.timestamp BETWEEN %s AND %s 
+            AND u.role != 'otro'
+            ORDER BY u.legajo, f.timestamp
+        """
         df = pd.read_sql(sql_query, conn, params=(start_date, end_date))
         
-        # NUEVO: Traer todos los usuarios para asegurar que aparezcan en el reporte
-        users_query = "SELECT legajo, nombre, apellido FROM usuarios ORDER BY legajo"
+        # NUEVO: Traer todos los usuarios para asegurar que aparezcan en el reporte (excluyendo 'otro')
+        users_query = "SELECT legajo, nombre, apellido FROM usuarios WHERE role != 'otro' ORDER BY legajo"
         all_users_df = pd.read_sql(users_query, conn)
         
         conn.close()
@@ -605,6 +639,7 @@ def descargar_log_pdf():
                 FROM fichajes f
                 JOIN usuarios u ON f.usuario_id = u.id
                 WHERE f.timestamp BETWEEN %s AND %s
+                AND u.role != 'otro'
             """
             params = [start_limit, end_limit]
             
