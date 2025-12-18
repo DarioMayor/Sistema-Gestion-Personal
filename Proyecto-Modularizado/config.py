@@ -8,5 +8,6 @@ class Config:
         'user': 'root',
         'password': '',
         'host': '127.0.0.1',
-        'database': 'gestion_personal_db'
+        'database': 'gestion_personal_db',
+        'use_pure': True  # Forzar modo Python puro para evitar errores con PyInstaller
     }

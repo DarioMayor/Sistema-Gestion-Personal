@@ -8,7 +8,7 @@ HardwareSerial mySerial(2);
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
 // Configuracion de la IP Local de la PC que ejecuta el script de Python
-const char* IP_SERVIDOR = "192.168.0.136";
+const char* IP_SERVIDOR = "192.168.0.198";
 
 //Configuracion del WiFi
 const char* ssid = "TP-Link_61F8";
