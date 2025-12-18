@@ -99,13 +99,23 @@
         }
 
         function mostrarFichajeExitoso(datos) {
-            const nombreCompleto = `${datos.nombre} ${datos.apellido}`;
+            // Lógica de visualización de nombre:
+            // Si se usó el apodo (que viene en nombre_mostrar), mostramos solo eso.
+            // Si se usó el nombre real, le agregamos el apellido para que quede más formal en pantalla.
+            let nombreDisplay = datos.nombre_mostrar;
+            if (datos.nombre_mostrar === datos.nombre) {
+                nombreDisplay = `${datos.nombre} ${datos.apellido}`;
+            }
+
             const tipoMensaje = `Fichaste la ${datos.tipo}`;
             const ts = new Date(datos.timestamp);
             const hora = ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
             const fecha = ts.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            bienvenidaEl.textContent = (datos.tipo === 'salida') ? '¡Hasta luego!' : '¡Bienvenido!';
-            nombreEl.textContent = nombreCompleto;
+            
+            // Usamos el saludo calculado en el backend
+            bienvenidaEl.textContent = '¡' + datos.mensaje_saludo + '!';
+            
+            nombreEl.textContent = nombreDisplay;
             tipoEl.textContent = tipoMensaje;
             infoHoraEl.innerHTML = `a las <span>${hora}</span> del día <span>${fecha}</span>`;
             tipoEl.style.color = (datos.tipo === 'salida') ? '#F44336' : '#4CAF50';

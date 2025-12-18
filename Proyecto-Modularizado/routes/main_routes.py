@@ -119,7 +119,7 @@ def recibir_fichaje():
         
         # --- Notificar al Monitor ---
         sql_get_data = """
-            SELECT f.id, f.timestamp, f.tipo, u.nombre, u.apellido 
+            SELECT f.id, f.timestamp, f.tipo, u.nombre, u.apellido, u.apodo 
             FROM fichajes AS f
             JOIN usuarios AS u ON f.usuario_id = u.id
             WHERE f.id = %s
@@ -128,16 +128,38 @@ def recibir_fichaje():
         datos_para_monitor = cursor.fetchone()
         
         if datos_para_monitor:
+            # --- PREPARAR DATOS PARA MONITOR Y AUDIO ---
+            
+            # 1. Determinar Nombre a mostrar/decir (Apodo o Nombre)
+            nombre_a_usar = datos_para_monitor['apodo'] if datos_para_monitor['apodo'] else datos_para_monitor['nombre']
+            
+            # 2. Determinar Saludo según horario
+            hora_actual = datetime.datetime.now().hour
+            if 5 <= hora_actual < 12:
+                saludo_horario = "Buen día"
+            elif 12 <= hora_actual < 20:
+                saludo_horario = "Buenas tardes"
+            else:
+                saludo_horario = "Buenas noches"
+
+            # 3. Definir el mensaje final (Visual y Audio)
+            if nuevo_tipo == "entrada":
+                mensaje_saludo = saludo_horario
+            else:
+                mensaje_saludo = "Hasta luego"
+
+            # Agregamos estos datos extra al objeto que enviamos al frontend
             datos_para_monitor['timestamp'] = datos_para_monitor['timestamp'].isoformat()
+            datos_para_monitor['mensaje_saludo'] = mensaje_saludo
+            datos_para_monitor['nombre_mostrar'] = datos_para_monitor['nombre']
+            
             socketio.emit('nuevo_fichaje', datos_para_monitor)
             print("Evento WebSocket emitido.")
 
             # --- AUDIO TTS ---
             try:
-                nombre = datos_para_monitor['nombre']
-                # Mensaje simple sin genero
-                mensaje = f"Bienvenido {nombre}" if nuevo_tipo == "entrada" else f"Hasta luego {nombre}"
-                threading.Thread(target=reproducir_audio, args=(mensaje,)).start()
+                texto_audio = f"{mensaje_saludo} {nombre_a_usar}"
+                threading.Thread(target=reproducir_audio, args=(texto_audio,)).start()
             except Exception as e:
                 print(f"Error lanzando hilo de audio: {e}")
             

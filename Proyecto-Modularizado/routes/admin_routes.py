@@ -236,6 +236,9 @@ def crear_usuario():
     if request.method == 'POST':
         nombre = request.form['nombre']
         apellido = request.form['apellido']
+        apodo = request.form.get('apodo') # Opcional
+        if not apodo:
+            apodo = None
         legajo = request.form['legajo']
         email = request.form.get('email') # Opcional
         if not email:
@@ -253,10 +256,10 @@ def crear_usuario():
         try:
             # Usamos 'username' en lugar de 'email' en la DB (columna original)
             sql_insert_user = """
-                INSERT INTO usuarios (nombre, apellido, legajo, horas_laborales, username, password_hash, role) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO usuarios (nombre, apellido, apodo, legajo, horas_laborales, username, password_hash, role) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(sql_insert_user, (nombre, apellido, legajo, horas_laborales, email, password_hash, role))
+            cursor.execute(sql_insert_user, (nombre, apellido, apodo, legajo, horas_laborales, email, password_hash, role))
             new_user_id = cursor.lastrowid
             
             if new_user_id and huellas_str:
@@ -298,6 +301,9 @@ def editar_usuario(usuario_id):
     if request.method == 'POST':
         nombre = request.form['nombre']
         apellido = request.form['apellido']
+        apodo = request.form.get('apodo') # Opcional
+        if not apodo:
+            apodo = None
         legajo = request.form['legajo']
         email = request.form.get('email') # Opcional
         if not email:
@@ -310,11 +316,11 @@ def editar_usuario(usuario_id):
         try:
             if nueva_password:
                 password_hash = generate_password_hash(nueva_password)
-                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, legajo=%s, username=%s, role=%s, password_hash=%s, horas_laborales=%s WHERE id=%s"
-                cursor.execute(sql_update, (nombre, apellido, legajo, email, role, password_hash, horas_laborales, usuario_id))
+                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, apodo=%s, legajo=%s, username=%s, role=%s, password_hash=%s, horas_laborales=%s WHERE id=%s"
+                cursor.execute(sql_update, (nombre, apellido, apodo, legajo, email, role, password_hash, horas_laborales, usuario_id))
             else:
-                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, legajo=%s, username=%s, role=%s, horas_laborales=%s WHERE id=%s"
-                cursor.execute(sql_update, (nombre, apellido, legajo, email, role, horas_laborales, usuario_id))
+                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, apodo=%s, legajo=%s, username=%s, role=%s, horas_laborales=%s WHERE id=%s"
+                cursor.execute(sql_update, (nombre, apellido, apodo, legajo, email, role, horas_laborales, usuario_id))
             
             cursor.execute("DELETE FROM huellas WHERE usuario_id = %s", (usuario_id,))
             if huellas_str:
@@ -344,7 +350,7 @@ def editar_usuario(usuario_id):
                 conn.close()
 
     try:
-        cursor.execute("SELECT id, nombre, apellido, legajo, username as email, role, horas_laborales FROM usuarios WHERE id = %s", (usuario_id,))
+        cursor.execute("SELECT id, nombre, apellido, apodo, legajo, username as email, role, horas_laborales FROM usuarios WHERE id = %s", (usuario_id,))
         usuario_a_editar = cursor.fetchone()
         cursor.execute("SELECT huella_id FROM huellas WHERE usuario_id = %s", (usuario_id,))
         huellas_raw = cursor.fetchall()
