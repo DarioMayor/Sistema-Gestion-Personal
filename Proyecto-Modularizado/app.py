@@ -44,4 +44,4 @@ if __name__ == "__main__":
     # Evitar que se abra dos veces al usar debug=True (reloader del servidor flask)
     if not os.environ.get("WERKZEUG_RUN_MAIN"):
         Timer(1.5, open_browser).start()
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)

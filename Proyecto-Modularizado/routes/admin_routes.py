@@ -23,23 +23,49 @@ def dashboard():
 
     # Obtener lista de usuarios para el filtro (solo si es admin)
     usuarios_filtro = []
-    if session['role'] == 'admin':
-        try:
-            conn = mysql.connector.connect(**Config.DB_CONFIG)
-            cursor = conn.cursor(dictionary=True)
+    fichajes_hoy = []
+    
+    try:
+        conn = mysql.connector.connect(**Config.DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        
+        if session['role'] == 'admin':
             cursor.execute("SELECT id, nombre, apellido, legajo FROM usuarios ORDER BY apellido, nombre")
             usuarios_filtro = cursor.fetchall()
-            cursor.close()
-            conn.close()
-        except Exception as e:
-            print(f"Error cargando usuarios para filtro: {e}")
+        
+        # Obtener fichajes del día actual para el usuario logueado (si no es admin o para todos)
+        # El requerimiento dice "para los usuarios comunes", pero no hace daño mostrarlo a todos o filtrar en el template.
+        # Vamos a traerlo siempre para el usuario actual.
+        user_id = session.get('user_id')
+        hoy_str = date.today().strftime('%Y-%m-%d')
+        start_date = f"{hoy_str} 00:00:00"
+        end_date = f"{hoy_str} 23:59:59"
+        
+        sql_hoy = """
+            SELECT timestamp, tipo 
+            FROM fichajes 
+            WHERE usuario_id = %s AND timestamp BETWEEN %s AND %s
+            ORDER BY timestamp ASC
+        """
+        cursor.execute(sql_hoy, (user_id, start_date, end_date))
+        fichajes_hoy = cursor.fetchall()
+        
+        # Formatear la hora para mostrar
+        for f in fichajes_hoy:
+            f['hora'] = f['timestamp'].strftime('%H:%M:%S')
+
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error cargando datos dashboard: {e}")
 
     contexto = {
         'username': session.get('legajo', 'Usuario'), # Mostramos legajo en lugar de username/email
         'role': session['role'],
         'nombre': session['nombre'],
         'apellido': session['apellido'],
-        'usuarios_filtro': usuarios_filtro # Pasamos la lista al template
+        'usuarios_filtro': usuarios_filtro, # Pasamos la lista al template
+        'fichajes_hoy': fichajes_hoy # Pasamos los fichajes de hoy
     }
     return render_template('dashboard.html', **contexto)
 

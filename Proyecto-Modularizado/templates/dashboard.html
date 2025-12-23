@@ -77,6 +77,41 @@
             </form>
         </div>
 
+        {% if role != 'admin' %}
+        <!-- TARJETA: FICHAJES DE HOY (SOLO USUARIOS COMUNES) -->
+        <div class="card">
+            <h3>Mis Fichajes de Hoy</h3>
+            {% if fichajes_hoy %}
+                <table class="admin-table" style="margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th>Hora</th>
+                            <th>Tipo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fichaje in fichajes_hoy %}
+                        <tr>
+                            <td>{{ fichaje.hora }}</td>
+                            <td>
+                                {% if fichaje.tipo|lower == 'entrada' %}
+                                    <span style="color: green; font-weight: bold;">Entrada</span>
+                                {% elif fichaje.tipo|lower == 'salida' %}
+                                    <span style="color: red; font-weight: bold;">Salida</span>
+                                {% else %}
+                                    {{ fichaje.tipo }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>No hay fichajes registrados para el día de hoy.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
         {% if role == 'admin' %}
         <!-- TARJETA 2: DESCARGA DE EXCEL (SOLO ADMIN) -->
         <div class="card admin-only">
