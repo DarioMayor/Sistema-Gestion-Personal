@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <SPIFFS.h> 
 
 // --- DECLARACIONES ADELANTADAS ---
 void handleRoot();
@@ -11,11 +12,26 @@ void handleStatus();
 void handleSetMode();
 void handleDelete();
 void handleConfigIP();
+void handleBackup();
+void handleRestore();
+void handleDownload();
+void handleFileUpload(); 
 void rutinaFichar();
 void rutinaRegistrar();
 int getFirstFreeID();
 void enviarFichajeExitoso(int id);
 void enviarFichajeFallido();
+
+// Funciones auxiliares sensor
+void writeFingerprintToSensor(uint16_t id, uint8_t* temp);
+void sendDataPacket(uint8_t type, const uint8_t* data, uint16_t len);
+uint8_t readConfirmation();
+
+// ==========================================
+// 🔒 SEGURIDAD
+// ==========================================
+const char* login_user = "admin";
+const char* login_pass = "preguntaleaedu"; 
 
 // --- CONFIGURACIÓN ---
 #define RX_PIN 26
@@ -23,8 +39,9 @@ void enviarFichajeFallido();
 HardwareSerial mySerial(2);
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
+// ¡¡¡ REVISA TU CONTRASEÑA AQUÍ !!!
 const char* ssid = "TP-Link_61F8";       
-const char* password = "81623655";
+const char* password = "81623655"; // <--- CAMBIAR ESTO
 
 WebServer server(80);
 Preferences preferences; 
@@ -37,32 +54,56 @@ int enrollStep = 0;
 int enrollID = 0;
 unsigned long lastActionTime = 0;
 String globalMessage = "Sistema Listo. Modo FICHAR activo.";
+File uploadFile; 
 
 // --- SETUP ---
 void setup() {
   Serial.begin(115200);
   
+  if(!SPIFFS.begin(true)){
+    Serial.println("Error SPIFFS");
+    globalMessage = "Error memoria interna.";
+  }
+
   preferences.begin("config", false); 
   ip_servidor = preferences.getString("serverIP", "192.168.0.198"); 
 
   mySerial.begin(57600, SERIAL_8N1, RX_PIN, TX_PIN);
   delay(100);
   if (finger.verifyPassword()) {
-    Serial.println("Sensor encontrado.");
+    Serial.println("Sensor OK.");
   } else {
-    Serial.println("Error: Sensor no encontrado.");
     globalMessage = "⚠️ ERROR: Sensor desconectado.";
   }
 
+  // Conexión WiFi con reintentos visibles
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) delay(500);
-  Serial.println("WiFi OK: " + WiFi.localIP().toString());
+  Serial.print("Conectando a WiFi");
+  int intentos = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    intentos++;
+    if(intentos > 40) { // 20 segundos timeout
+       Serial.println("\nNo conecta. Revisa contraseña.");
+       break;
+    }
+  }
+  Serial.println("\nIP Asignada: " + WiFi.localIP().toString());
 
+  // RUTAS WEB
   server.on("/", handleRoot);              
   server.on("/status", handleStatus);      
   server.on("/setMode", handleSetMode);    
   server.on("/delete", handleDelete);
-  server.on("/configIP", handleConfigIP); 
+  server.on("/configIP", handleConfigIP);
+  server.on("/backup", handleBackup);
+  server.on("/restore", handleRestore);
+  server.on("/download", handleDownload);
+  
+  server.on("/upload", HTTP_POST, []() {
+    server.send(200, "text/plain", "Carga Completada");
+  }, handleFileUpload);
   
   server.begin();
 }
@@ -91,7 +132,7 @@ void rutinaFichar() {
   p = finger.fingerSearch();
   if (p == FINGERPRINT_OK) {
     int id = finger.fingerID;
-    String msg = "✅ Fichada Exitosa ID #" + String(id);
+    String msg = "✅ Fichada ID #" + String(id);
     Serial.println(msg);
     globalMessage = msg;
     enviarFichajeExitoso(id);
@@ -136,10 +177,10 @@ void rutinaRegistrar() {
     case 0: 
       enrollID = getFirstFreeID();
       if (enrollID == -1) {
-        globalMessage = "⚠️ Error: Memoria llena.";
+        globalMessage = "⚠️ Memoria llena.";
         currentMode = MODE_IDLE;
       } else {
-        globalMessage = "☝ Pon el dedo para ID #" + String(enrollID);
+        globalMessage = "☝ Pon dedo para ID #" + String(enrollID);
         enrollStep = 1;
       }
       break;
@@ -154,10 +195,10 @@ void rutinaRegistrar() {
       }
       break;
     case 2: 
-      if (millis() - lastActionTime > 2000) { 
+      if (millis() - lastActionTime > 3000) { 
         p = finger.getImage();
         if (p == FINGERPRINT_NOFINGER) {
-           globalMessage = "☝ Vuelve a poner el MISMO dedo.";
+           globalMessage = "☝ Pon el MISMO dedo.";
            enrollStep = 3;
         }
       }
@@ -175,14 +216,14 @@ void rutinaRegistrar() {
       if (p == FINGERPRINT_OK) {
          p = finger.storeModel(enrollID);
          if (p == FINGERPRINT_OK) {
-           globalMessage = "✨ ÉXITO: Huella guardada ID #" + String(enrollID);
+           globalMessage = "✨ ÉXITO: ID #" + String(enrollID);
          } else {
-           globalMessage = "❌ Error al guardar.";
+           globalMessage = "❌ Error Flash.";
          }
       } else {
-         globalMessage = "❌ Error: No coinciden.";
+         globalMessage = "❌ No coinciden.";
       }
-      delay(2000);
+      delay(3000);
       currentMode = MODE_FICHAR; 
       enrollStep = 0;
       break;
@@ -197,137 +238,290 @@ int getFirstFreeID() {
 }
 
 // ==========================================================
-// INTERFAZ WEB MEJORADA
+// 🛠️ BACKUP / RESTORE / UPLOAD HANDLERS
+// ==========================================================
+
+void handleBackup() {
+  if (!server.authenticate(login_user, login_pass)) return server.requestAuthentication();
+  
+  globalMessage = "⏳ GENERANDO BACKUP... NO APAGAR.";
+  
+  File f = SPIFFS.open("/backup.dat", FILE_WRITE);
+  int count = 0;
+  
+  // Recorremos todas las IDs posibles
+  for (int id = 1; id <= 127; id++) {
+    
+    // IMPORTANTE: Limpiar buffer serial antes de cada comando para evitar saturación
+    while(mySerial.available()) mySerial.read();
+    
+    // Verificamos si existe el modelo
+    if (finger.loadModel(id) == FINGERPRINT_OK) {
+       // Pedimos subir el modelo al ESP32
+       if (finger.getModel() == FINGERPRINT_OK) {
+          
+          // Lectura manual del paquete (Timeout 1 seg por huella)
+          uint8_t bytesReceived[534]; 
+          memset(bytesReceived, 0xff, 534);
+          uint32_t starttime = millis();
+          int i = 0;
+          while (i < 534 && (millis() - starttime) < 1000) {
+            if (mySerial.available()) bytesReceived[i++] = mySerial.read();
+          }
+          
+          // Procesar solo si leímos algo coherente
+          if (i > 10) {
+              uint8_t fingerTemplate[512]; 
+              int uindx = 9, index = 0;
+              memcpy(fingerTemplate + index, bytesReceived + uindx, 256);
+              uindx += 256 + 2 + 9;
+              index += 256;
+              memcpy(fingerTemplate + index, bytesReceived + uindx, 256);
+    
+              uint8_t id_byte = (uint8_t)id;
+              f.write(&id_byte, 1);
+              f.write(fingerTemplate, 512);
+              count++;
+          }
+       }
+    }
+    // IMPORTANTE: Pequeña pausa para que el sensor respire entre comandos
+    delay(50); 
+  }
+  
+  f.close();
+  globalMessage = "✅ Backup OK: " + String(count) + " huellas.";
+  server.send(200, "text/plain", "OK"); 
+}
+
+void handleRestore() {
+  if (!server.authenticate(login_user, login_pass)) return server.requestAuthentication();
+  
+  if (!SPIFFS.exists("/backup.dat")) {
+    server.send(404, "text/plain", "No File");
+    return;
+  }
+
+  globalMessage = "⏳ RESTAURANDO... ESPERE...";
+  File f = SPIFFS.open("/backup.dat", FILE_READ);
+  int count = 0;
+  
+  while (f.available() >= 513) { 
+     uint8_t id;
+     f.read(&id, 1);
+     uint8_t temp[512];
+     f.read(temp, 512);
+     writeFingerprintToSensor(id, temp);
+     count++;
+     delay(100); // Pausa necesaria para que el sensor grabe en su Flash interna
+  }
+  f.close();
+  globalMessage = "✅ Restaurado: " + String(count) + " huellas.";
+  server.send(200, "text/plain", "OK"); 
+}
+
+void handleDownload() {
+  if (!server.authenticate(login_user, login_pass)) return server.requestAuthentication();
+  if (SPIFFS.exists("/backup.dat")) {
+    File f = SPIFFS.open("/backup.dat", "r");
+    server.streamFile(f, "application/octet-stream");
+    f.close();
+  } else {
+    server.send(404, "text/plain", "No hay backup.");
+  }
+}
+
+void handleFileUpload() {
+  if (!server.authenticate(login_user, login_pass)) return; 
+
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    String filename = "/backup.dat"; 
+    uploadFile = SPIFFS.open(filename, FILE_WRITE);
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (uploadFile) uploadFile.write(upload.buf, upload.currentSize);
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (uploadFile) {
+      uploadFile.close();
+      globalMessage = "✅ Archivo subido correctamente.";
+    }
+  }
+}
+
+// Funciones de bajo nivel Sensor
+void writeFingerprintToSensor(uint16_t id, uint8_t* temp) {
+  uint8_t packet[] = { 0xEF, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x04, 0x09, 0x01, 0x00, 0x0F };
+  mySerial.write(packet, sizeof(packet));
+  delay(20); 
+  if (readConfirmation() != 0x00) return;
+  for (int idx = 0; idx < 512; idx += 128) {
+     uint8_t packetType = (idx + 128 >= 512) ? 0x08 : 0x02;
+     sendDataPacket(packetType, temp + idx, 128);
+  }
+  finger.storeModel(id);
+}
+
+void sendDataPacket(uint8_t type, const uint8_t* data, uint16_t len) {
+  uint16_t sum = type + len + 2;
+  mySerial.write((uint8_t)0xEF); mySerial.write((uint8_t)0x01);
+  mySerial.write((uint8_t)0xFF); mySerial.write((uint8_t)0xFF); 
+  mySerial.write((uint8_t)0xFF); mySerial.write((uint8_t)0xFF);
+  mySerial.write(type);
+  mySerial.write((uint8_t)((len + 2) >> 8));
+  mySerial.write((uint8_t)((len + 2) & 0xFF));
+  for (int i = 0; i < len; i++) {
+    mySerial.write(data[i]);
+    sum += data[i];
+  }
+  mySerial.write((uint8_t)(sum >> 8));
+  mySerial.write((uint8_t)(sum & 0xFF));
+}
+
+uint8_t readConfirmation() {
+  uint8_t reply[12];
+  int idx = 0;
+  uint32_t timer = millis();
+  while (millis() - timer < 1000 && idx < 12) {
+    if (mySerial.available()) reply[idx++] = mySerial.read();
+  }
+  if (idx >= 10) return reply[9];
+  return 0xFF;
+}
+
+// ==========================================================
+// INTERFAZ WEB SPA (AJAX) - DISEÑO MODIFICADO
 // ==========================================================
 
 void handleRoot() {
-  // Construimos el HTML. Usamos String para poder insertar las variables fácilmente.
+  if (!server.authenticate(login_user, login_pass)) return server.requestAuthentication();
+
   String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
   html += "<title>Biometría ESP32</title>";
   html += "<style>";
-  html += "body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; }";
+  html += "body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; padding: 20px; display: flex; justify-content: center; }";
   html += ".container { background: white; width: 100%; max-width: 400px; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; }";
-  html += "h2 { color: #333; margin-bottom: 20px; }";
+  html += ".status-box { background: #e8f5e9; color: #2e7d32; padding: 15px; border-radius: 10px; margin-bottom: 25px; font-weight: bold; }";
+  html += "button { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 10px; transition:0.2s; }";
+  html += "button:active { transform: scale(0.98); }";
   
-  // Estilo Status
-  html += ".status-box { background: #e8f5e9; color: #2e7d32; padding: 15px; border-radius: 10px; border: 1px solid #c8e6c9; margin-bottom: 25px; font-weight: bold; font-size: 1.1em; min-height: 50px; display: flex; align-items: center; justify-content: center; }";
+  html += ".btn-fichar { background: #2196F3; color: white; }";
+  html += ".btn-enroll { background: #4CAF50; color: white; }";
+  html += ".btn-delete { background: #FF5252; color: white; width: 30% !important; margin-left:5px; }";
+  html += ".btn-backup { background: #673AB7; color: white; }";
+  html += ".btn-upload { background: #009688; color: white; }";
+  html += ".btn-download { background: #607D8B; color: white; font-size: 14px; padding: 10px; }";
+  html += ".btn-danger { background: #d32f2f; color: white; margin-top: 30px; border: 2px solid #b71c1c; }"; // Botón de peligro
   
-  // Estilos Botones
-  html += "button { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }";
-  html += ".btn-fichar { background: #2196F3; color: white; } .btn-fichar:hover { background: #1976D2; }";
-  html += ".btn-enroll { background: #4CAF50; color: white; } .btn-enroll:hover { background: #388E3C; }";
-  html += ".btn-delete { background: #FF5252; color: white; width: 30% !important; margin-left: 5px; }";
-  html += ".btn-danger { background: #d32f2f; color: white; margin-top: 20px; }";
-  
-  // Estilos Inputs y Formularios
   html += ".input-group { display: flex; justify-content: space-between; align-items: center; margin: 15px 0; background: #f9f9f9; padding: 10px; border-radius: 8px; }";
-  html += "input[type='number'], input[type='text'] { padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 60%; font-size: 16px; outline: none; }";
-  html += "hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }";
+  html += "input[type='number'], input[type='text'] { padding: 10px; border: 1px solid #ddd; width: 60%; outline: none; }";
   html += ".label { font-size: 0.9em; color: #666; margin-bottom: 5px; display: block; text-align: left; }";
   html += "</style>";
 
-  // JavaScript para los GLOBOS DE DIALOGO (Alerts/Confirms)
   html += "<script>";
   html += "setInterval(function(){fetch('/status').then(r=>r.text()).then(t=>{document.getElementById('msg').innerText=t;});}, 1000);";
   
-  html += "function confirmarBorrarUno() {";
+  html += "function callMode(m) { fetch('/setMode?m=' + m); }";
+  
+  html += "function borrarUno() {";
   html += "  var id = document.getElementById('id_input').value;";
-  html += "  if(!id) { alert('⚠️ Por favor ingresa un número de ID.'); return; }";
-  html += "  if(confirm('⚠️ ADVERTENCIA \\n\\n¿Estás seguro que deseas ELIMINAR la huella ID #' + id + '?\\n\\nEsta acción no se puede deshacer.')) {";
-  html += "    location.href = '/delete?id=' + id;";
-  html += "  }";
+  html += "  if(id && confirm('¿Borrar ID ' + id + '?')) fetch('/delete?id=' + id);";
   html += "}";
 
-  html += "function confirmarVaciar() {";
-  html += "  if(confirm('⛔ PELIGRO CRÍTICO ⛔\\n\\n¿Estás realmente seguro de BORRAR TODAS las huellas?\\n\\n¡Se eliminará toda la base de datos del sensor!')) {";
-  html += "    location.href = '/setMode?m=vaciar';";
-  html += "  }";
+  html += "function crearBackup() {";
+  html += "  if(!confirm('¿Crear Backup? El sensor se pausará unos segundos.')) return;";
+  html += "  document.getElementById('msg').innerText = '⏳ GENERANDO BACKUP...';";
+  html += "  fetch('/backup').then(r => { alert('¡Backup Creado!'); });";
   html += "}";
+
+  html += "function restaurarBackup() {";
+  html += "  if(!confirm('¿Sobrescribir sensor con el Backup?')) return;";
+  html += "  document.getElementById('msg').innerText = '⏳ RESTAURANDO...';";
+  html += "  fetch('/restore').then(r => { alert('¡Restauración Completada!'); });";
+  html += "}";
+
+  html += "function subirArchivo() {";
+  html += "  var input = document.getElementById('fileUpload');";
+  html += "  if(input.files.length === 0) return;";
+  html += "  var data = new FormData();";
+  html += "  data.append('file', input.files[0]);";
+  html += "  document.getElementById('msg').innerText = '⬆️ SUBIENDO ARCHIVO...';";
+  html += "  fetch('/upload', { method: 'POST', body: data }).then(r => {";
+  html += "     alert('Archivo subido con éxito'); input.value = '';";
+  html += "  });";
+  html += "}";
+  
+  html += "function guardarIP() {";
+  html += "  var ip = document.getElementById('ip_input').value;";
+  html += "  fetch('/configIP?ip=' + ip).then(r => alert('IP Guardada'));";
+  html += "}";
+
   html += "</script>";
 
-  html += "</head><body>";
-  html += "<div class='container'>";
-  html += "<h2>🔐 Control de Acceso</h2>";
-  
-  // Caja de Estado
+  html += "</head><body><div class='container'>";
+  html += "<h2>🔐 Control Lector de Huellas</h2>";
   html += "<div class='status-box'><span id='msg'>" + globalMessage + "</span></div>";
   
-  // Botones Principales
-  html += "<button class='btn-fichar' onclick=\"location.href='/setMode?m=fichar'\">📋 MODO FICHAR (Normal)</button>";
-  html += "<button class='btn-enroll' onclick=\"location.href='/setMode?m=registrar'\">➕ REGISTRAR HUELLA</button>";
+  html += "<button class='btn-fichar' onclick=\"callMode('fichar')\">📋 MODO FICHAR</button>";
+  html += "<button class='btn-enroll' onclick=\"callMode('registrar')\">➕ REGISTRAR</button>";
   
-  html += "<hr>";
+  html += "<hr><span class='label'>Backup & Restauración</span>";
   
-  // Sección Borrar Uno
-  html += "<span class='label'>Gestión de Usuarios</span>";
-  html += "<div class='input-group'>";
-  html += "<input type='number' id='id_input' placeholder='ID a borrar (ej: 5)'>";
-  html += "<button class='btn-delete' onclick='confirmarBorrarUno()'>🗑</button>";
+  html += "<button class='btn-backup' onclick='crearBackup()'>💾 CREAR BACKUP (En ESP32)</button>";
+  html += "<button class='btn-backup' style='background:#FF9800' onclick='restaurarBackup()'>♻️ RESTAURAR (Al Sensor)</button>";
+  
+  html += "<div style='margin-top:10px; border:1px dashed #aaa; padding:10px; border-radius:8px;'>";
+  html += "<input type='file' id='fileUpload' style='display:none' onchange='subirArchivo()'>";
+  html += "<button class='btn-upload' onclick=\"document.getElementById('fileUpload').click()\">⬆️ CARGAR RESPALDO (Desde PC)</button>";
+  html += "<button class='btn-download' onclick=\"location.href='/download'\">⬇️ BAJAR RESPALDO (A PC)</button>";
   html += "</div>";
 
-  // Sección Config IP
-  html += "<span class='label'>Configuración Servidor PC</span>";
-  html += "<form action='/configIP' method='get' class='input-group'>";
-  html += "<input type='text' name='ip' value='" + ip_servidor + "'>";
-  html += "<button type='submit' style='width:30%; background:#607D8B; color:white; margin:0 0 0 5px;'>💾</button>";
-  html += "</form>";
+  html += "<hr><span class='label'>Gestión ID</span>";
+  html += "<div class='input-group'><input type='number' id='id_input' placeholder='ID'><button class='btn-delete' onclick='borrarUno()'>🗑</button></div>";
 
-  // Zona de Peligro
-  html += "<button class='btn-danger' onclick='confirmarVaciar()'>💀 BORRAR TODO</button>";
+  html += "<span class='label'>IP Servidor</span>";
+  html += "<div class='input-group'><input type='text' id='ip_input' value='" + ip_servidor + "'><button style='width:30%;background:#607D8B;color:white' onclick='guardarIP()'>💾</button></div>";
   
+  // BOTÓN DE PELIGRO MOVIDO AL FINAL
+  html += "<button class='btn-danger' style='width:100% !important' onclick=\"if(confirm('¿Borrar TODO?')) callMode('vaciar')\">💀 BORRAR TODO</button>";
+
   html += "</div></body></html>";
   
   server.send(200, "text/html", html);
 }
 
 void handleStatus() {
+  if (!server.authenticate(login_user, login_pass)) return;
   server.send(200, "text/plain", globalMessage);
 }
 
 void handleSetMode() {
+  if (!server.authenticate(login_user, login_pass)) return;
   if (!server.hasArg("m")) return;
   String m = server.arg("m");
   
-  if (m == "fichar") {
-    currentMode = MODE_FICHAR;
-    globalMessage = "Modo FICHAR activado.";
-  } else if (m == "registrar") {
-    currentMode = MODE_ENROLL;
-    enrollStep = 0;
-    globalMessage = "Iniciando registro...";
-  } else if (m == "vaciar") {
-    finger.emptyDatabase();
-    globalMessage = "⚠️ BASE DE DATOS VACIADA.";
-    currentMode = MODE_IDLE;
-  }
-  server.sendHeader("Location", "/");
-  server.send(303);
+  if (m == "fichar") { currentMode = MODE_FICHAR; globalMessage = "Modo FICHAR."; }
+  else if (m == "registrar") { currentMode = MODE_ENROLL; enrollStep = 0; globalMessage = "Iniciando registro..."; }
+  else if (m == "vaciar") { finger.emptyDatabase(); globalMessage = "⚠️ BD VACIADA."; currentMode = MODE_IDLE; }
+  
+  server.send(200, "text/plain", "OK");
 }
 
 void handleDelete() {
+  if (!server.authenticate(login_user, login_pass)) return;
   if (server.hasArg("id")) {
     int id = server.arg("id").toInt();
-    if (id > 0) {
-      if (finger.deleteModel(id) == FINGERPRINT_OK) {
-        globalMessage = "✅ ID #" + String(id) + " eliminado.";
-      } else {
-        globalMessage = "❌ Error borrando ID #" + String(id);
-      }
-    }
+    if (id > 0 && finger.deleteModel(id) == FINGERPRINT_OK) globalMessage = "✅ ID #" + String(id) + " eliminado.";
+    else globalMessage = "❌ Error borrando ID #" + String(id);
   }
-  server.sendHeader("Location", "/");
-  server.send(303);
+  server.send(200, "text/plain", "OK");
 }
 
 void handleConfigIP() {
+  if (!server.authenticate(login_user, login_pass)) return;
   if (server.hasArg("ip")) {
-    String newIP = server.arg("ip");
-    if (newIP.length() > 6) { 
-      ip_servidor = newIP;
-      preferences.putString("serverIP", ip_servidor); 
-      globalMessage = "IP guardada: " + ip_servidor;
-    }
+    ip_servidor = server.arg("ip");
+    preferences.putString("serverIP", ip_servidor); 
+    globalMessage = "IP guardada.";
   }
-  server.sendHeader("Location", "/");
-  server.send(303);
+  server.send(200, "text/plain", "OK");
 }

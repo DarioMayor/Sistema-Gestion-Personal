@@ -218,7 +218,16 @@ def admin_usuarios():
     try:
         conn = mysql.connector.connect(**Config.DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, nombre, apellido, legajo, username as email, role, horas_laborales FROM usuarios ORDER BY apellido, nombre")
+        # Modificamos la consulta para incluir las huellas asignadas
+        sql = """
+            SELECT u.id, u.nombre, u.apellido, u.legajo, u.username as email, u.role, u.horas_laborales, 
+                   GROUP_CONCAT(h.huella_id SEPARATOR ', ') as huellas
+            FROM usuarios u
+            LEFT JOIN huellas h ON u.id = h.usuario_id
+            GROUP BY u.id
+            ORDER BY u.apellido, u.nombre
+        """
+        cursor.execute(sql)
         lista_de_usuarios = cursor.fetchall()
         cursor.close()
         conn.close()

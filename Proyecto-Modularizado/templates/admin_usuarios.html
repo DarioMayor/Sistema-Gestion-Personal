@@ -57,10 +57,10 @@
     <table>
         <thead>
             <tr>
-                <th>ID</th>
                 <th>Legajo</th>                
                 <th>Apellido y Nombre</th>
                 <th>Email</th>
+                <th>Huellas Asignadas</th>
                 <th>Horas Laborales</th>
                 <th>Rol</th>
                 <th>Acciones</th>
@@ -69,10 +69,10 @@
         <tbody>
             {% for user in usuarios %}
             <tr>
-                <td>{{ user.id }}</td>
                 <td>{{ user.legajo }}</td>
                 <td>{{ user.apellido }}, {{ user.nombre }}</td>
                 <td>{{ user.email or '-' }}</td>
+                <td>{{ user.huellas or '-' }}</td>
                 <td>{{ user.horas_laborales }}</td>
                 <td>
                     {% if user.role == 'admin' %}
