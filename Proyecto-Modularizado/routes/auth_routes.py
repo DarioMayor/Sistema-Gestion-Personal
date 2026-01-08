@@ -8,6 +8,7 @@ from utils.decorators import login_required
 auth_bp = Blueprint('auth', __name__)
 
 # --- RUTA DE LOGIN  ---
+# Esta función gestiona el inicio de sesión de los usuarios validando sus credenciales.
 @auth_bp.route("/login", methods=['GET', 'POST'])
 def login():
     if 'logged_in' in session:
@@ -39,12 +40,14 @@ def login():
     return render_template('login.html')
 
 # --- RUTA DE LOGOUT ---
+# Esta función cierra la sesión actual del usuario y lo redirige al login.
 @auth_bp.route("/logout")
 def logout():
     session.clear()
     flash("Has cerrado sesión.", "success")
     return redirect(url_for('auth.login'))
 
+# Esta función permite al usuario logueado cambiar su contraseña y ver sus datos básicos.
 # --- RUTA DE PERFIL (MODIFICAR USUARIO) ---
 @auth_bp.route("/perfil", methods=['GET', 'POST'])
 @login_required

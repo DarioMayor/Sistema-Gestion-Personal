@@ -44,11 +44,14 @@ def reproducir_audio(texto):
 main_bp = Blueprint('main', __name__)
 
 # --- RUTA 1: El monitor visual ---
+# Esta función renderiza la página del monitor en tiempo real donde se muestran los fichajes recientes.
 @main_bp.route("/monitor")
 def monitor():
     return render_template('monitor.html')
 
 # --- RUTA 2: El endpoint para el ESP32  ---
+# Esta función recibe los datos del sensor de huella (ESP32), registra el fichaje en la BD,
+# determina si es entrada/salida y notifica al monitor vía WebSocket.
 @main_bp.route("/fichar", methods=['POST'])
 def recibir_fichaje():
     datos = request.json

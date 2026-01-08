@@ -39,9 +39,9 @@ const char* login_pass = "preguntaleaedu";
 HardwareSerial mySerial(2);
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
-// ¡¡¡ REVISA TU CONTRASEÑA AQUÍ !!!
-const char* ssid = "TP-Link_61F8";       
-const char* password = "81623655"; // <--- CAMBIAR ESTO
+// --- CONTRASEÑA WIFI ---
+const char* ssid = "Red-INTI";       
+const char* password = "reDES1957"; // 
 
 WebServer server(80);
 Preferences preferences; 
@@ -389,7 +389,7 @@ uint8_t readConfirmation() {
 }
 
 // ==========================================================
-// INTERFAZ WEB SPA (AJAX) - DISEÑO MODIFICADO
+// INTERFAZ WEB SPA (AJAX)
 // ==========================================================
 
 void handleRoot() {

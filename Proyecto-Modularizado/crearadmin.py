@@ -2,6 +2,11 @@ from werkzeug.security import generate_password_hash
 import mysql.connector
 from config import Config
 
+# --- SCRIPT PARA CREAR ADMINISTRADOR ---
+# Este script se ejecuta independientemente para crear o actualizar un usuario administrador
+# con acceso completo en la base de datos, útil para la configuración inicial.
+# ---------------------------------------
+
 # --- DATOS DEL ADMIN POR DEFECTO ---
 legajo = "0000"
 password = "dariomayor"

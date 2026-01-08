@@ -28,6 +28,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(fichajes_bp)
 
 # Filtro de fecha para Jinja
+# Esta función permite formatear fechas en los templates HTML de 'YYYY-MM-DD' a 'DD/MM/YYYY'.
 def format_date_html_filter(date_str):
     try:
         return datetime.datetime.strptime(date_str, '%Y-%m-%d').strftime('%d/%m/%Y')
@@ -35,8 +36,10 @@ def format_date_html_filter(date_str):
         return date_str
 app.jinja_env.filters['format_date_html'] = format_date_html_filter
 
+# Esta función abre automáticamente el navegador en las ventanas de login y monitor al iniciar la app.
 def open_browser():
     print("Abriendo navegador en el Monitor...")
+    webbrowser.open_new('http://localhost:5000/login')
     webbrowser.open_new('http://localhost:5000/monitor')
 
 if __name__ == "__main__":

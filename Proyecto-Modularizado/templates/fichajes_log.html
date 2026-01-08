@@ -54,7 +54,7 @@
         <div class="header-actions">
             <h2>Log Cronológico: {{ start_date }} al {{ end_date }}</h2>
             
-            <!-- Filtro de Usuario (Solo Admin) -->
+            <!-- Filtro de Usuario -->
             {% if user_role == 'admin' %}
             <form action="/ver_fichajes" method="POST" style="display: inline-block; margin-right: 10px;">
                 <input type="hidden" name="log_start_date" value="{{ start_date }}">

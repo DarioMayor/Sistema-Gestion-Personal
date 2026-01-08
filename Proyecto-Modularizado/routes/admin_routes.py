@@ -16,6 +16,7 @@ from utils.pdf_generator import PDF # Importamos la clase PDF desde utils
 admin_bp = Blueprint('admin', __name__)
 
 # --- DASHBOARD ---
+# Esta función renderiza el panel principal, mostrando datos resumen y fichajes del día.
 @admin_bp.route("/dashboard")
 def dashboard():
     if 'logged_in' not in session:
@@ -70,6 +71,7 @@ def dashboard():
     return render_template('dashboard.html', **contexto)
 
 # --- VER FICHAJES (LOG) ---
+# Esta función permite visualizar el historial de fichajes con filtros de fecha y usuario.
 @admin_bp.route("/ver_fichajes", methods=['POST'])
 @login_required 
 def ver_fichajes():
@@ -238,6 +240,7 @@ def ver_fichajes():
     
     
 # --- GESTIÓN USUARIOS (LISTA) ---
+# Esta función muestra la lista completa de usuarios registrados y sus huellas asignadas.
 @admin_bp.route("/admin/usuarios")
 @admin_required
 def admin_usuarios():
@@ -262,6 +265,7 @@ def admin_usuarios():
         flash(f"Error al cargar usuarios: {err}", "error")
         return redirect(url_for('admin.dashboard'))
 
+# Esta función maneja la creación de nuevos usuarios y la asignación inicial de huellas.
 # --- CREAR USUARIO ---
 @admin_bp.route("/admin/crear", methods=['GET', 'POST'])
 @admin_required
@@ -322,6 +326,7 @@ def crear_usuario():
                 conn.close()
 
     return render_template('crear_usuario.html', form_data=form_data)
+# Esta función permite modificar los datos de un usuario existente, incluyendo contraseña y huellas.
 
 # --- EDITAR USUARIO ---
 @admin_bp.route("/admin/editar/<int:usuario_id>", methods=['GET', 'POST'])
@@ -418,6 +423,7 @@ def editar_usuario(usuario_id):
     finally:
         if conn.is_connected():
             cursor.close()
+# Esta función elimina un usuario, sus huellas y fichajes relacionados de la base de datos.
             conn.close()
 
 # --- ELIMINAR USUARIO ---
@@ -441,6 +447,7 @@ def eliminar_usuario(usuario_id):
         if conn.is_connected():
             cursor.close()
             conn.close()
+# Esta función genera y descarga un reporte en Excel de los fichajes filtrados por fecha.
     return redirect(url_for('admin.admin_usuarios'))
 
 # --- DESCARGAR EXCEL ---
@@ -641,6 +648,7 @@ def descargar_excel():
 
     except Exception as e:
         import traceback; traceback.print_exc()
+# Esta función genera PDFs o un ZIP con reportes diarios de fichajes para imprimir o archivar.
         flash(f"Error al generar el reporte: {e}", "error")
         return redirect(url_for('admin.dashboard'))
 

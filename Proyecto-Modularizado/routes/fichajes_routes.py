@@ -9,6 +9,8 @@ from utils.decorators import admin_required
 fichajes_bp = Blueprint('fichajes', __name__)
 
 # 1. VER LISTA Y AGREGAR NUEVO (MANUAL)
+# Esta función permite al administrador ver la lista de fichajes de una fecha específica,
+# calcular alertas de fichajes impares (entradas sin salidas o viceversa) y agregar nuevos fichajes manualmente.
 @fichajes_bp.route("/admin/fichajes", methods=['GET', 'POST'])
 @admin_required
 def admin_fichajes():
@@ -89,6 +91,9 @@ def admin_fichajes():
 
 
 # 2. EDITAR FICHAJE (MANUAL)
+# Esta función permite editar un fichaje existente.
+# Antes de guardar los cambios, registra el estado anterior del fichaje en la tabla de historial
+# para mantener una auditoría de las modificaciones realizadas.
 @fichajes_bp.route("/admin/fichajes/editar/<int:fichaje_id>", methods=['GET', 'POST'])
 @admin_required
 def editar_fichaje(fichaje_id):
@@ -153,6 +158,8 @@ def editar_fichaje(fichaje_id):
 
 
 # 3. ELIMINAR FICHAJE (MANUAL)
+# Esta función permite eliminar un fichaje de la base de datos.
+# Recibe el ID del fichaje a eliminar y redirige a la lista de fichajes de la fecha correspondiente.
 @fichajes_bp.route("/admin/fichajes/eliminar/<int:fichaje_id>", methods=['POST'])
 @admin_required
 @admin_required
@@ -171,6 +178,8 @@ def eliminar_fichaje(fichaje_id):
         flash(f"Error al eliminar: {err}", "error")
         
     return redirect(url_for('fichajes.admin_fichajes', fecha=fecha_retorno))
+# Esta función muestra el historial de modificaciones de un fichaje específico,
+# detallando quién lo modificó, cuándo y cuáles eran los valores originales antes de la edición.
 
 # 4. VER HISTORIAL 
 @fichajes_bp.route("/admin/fichajes/historial/<int:fichaje_id>")

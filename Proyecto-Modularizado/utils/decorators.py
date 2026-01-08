@@ -1,6 +1,7 @@
 from functools import wraps
 from flask import session, redirect, url_for, flash
 
+# Este decorador asegura que el usuario esté logueado antes de permitir el acceso a la vista.
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -11,7 +12,8 @@ def login_required(f):
     return decorated_function
 
 
-# Esta función revisará si el usuario es "admin"
+# Este decorador asegura que el usuario tenga el rol de 'admin' para acceder a la vista.
+# Si está logueado pero no es admin, lo redirige al dashboard.
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
