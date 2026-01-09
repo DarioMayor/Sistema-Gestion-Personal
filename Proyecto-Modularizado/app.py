@@ -12,6 +12,7 @@ from routes.fichajes_routes import fichajes_bp
 import webbrowser
 from threading import Timer
 import os
+import subprocess
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -36,11 +37,37 @@ def format_date_html_filter(date_str):
         return date_str
 app.jinja_env.filters['format_date_html'] = format_date_html_filter
 
-# Esta función abre automáticamente el navegador en las ventanas de login y monitor al iniciar la app.
+# Esta función abre automáticamente el navegador en la ventana de monitor al iniciar la app.
 def open_browser():
-    print("Abriendo navegador en el Monitor...")
-    webbrowser.open_new('http://localhost:5000/login')
-    webbrowser.open_new('http://localhost:5000/monitor')
+    
+    # Ruta estandar de Edge (verifica si en la PC es esta)
+    edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+    
+    # Lista de URLs a abrir
+    urls_to_open = [
+        "http://localhost:5000/monitor"
+    ]
+    
+    for url in urls_to_open:
+        # ARGUMENTOS MAGICOS:
+        # --new-window: Abre ventana nueva siempre
+        # --app=...: Abre sin barra de direcciones (parece un programa nativo)
+        # --disable-session-crashed-bubble: ELIMINA EL AVISO DE RESTAURAR SESION
+        # --disable-infobars: Quita avisos de "está siendo controlado por soft de prueba"
+        cmd = [
+            edge_path, 
+            "--new-window", 
+            f"--app={url}", 
+            "--disable-session-crashed-bubble", 
+            "--disable-infobars" 
+        ]
+        
+        try:
+            subprocess.Popen(cmd)
+        except (FileNotFoundError, OSError):
+            # Si no encuentra Edge, usa el metodo viejo como respaldo
+            print(f"No se encontró Edge en {edge_path}, usando navegador por defecto.")
+            webbrowser.open_new(url)
 
 if __name__ == "__main__":
     print("Iniciando servidor Modular...")

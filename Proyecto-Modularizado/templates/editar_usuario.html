@@ -79,6 +79,12 @@
                     <option value="otro" {% if usuario.role == 'otro' %}selected{% endif %}>Otro</option>
                 </select>
             </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="incluir_en_reportes" name="incluir_en_reportes" {% if usuario.incluir_en_reportes %}checked{% endif %} style="width: auto;">
+                <label for="incluir_en_reportes" style="margin: 0; display: inline;">Incluir en Reportes y Logs</label>
+            </div>
+
             <hr>
             <div class="form-group">
                 <label for="nueva_password">Nueva Contraseña:</label>

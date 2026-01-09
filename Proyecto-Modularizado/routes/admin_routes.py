@@ -98,6 +98,7 @@ def ver_fichajes():
             FROM fichajes f
             JOIN usuarios u ON f.usuario_id = u.id
             WHERE f.timestamp BETWEEN %s AND %s 
+            AND u.incluir_en_reportes = 1
         """
         params = [start_date, end_date]
         
@@ -286,6 +287,7 @@ def crear_usuario():
         role = request.form['role']
         huellas_str = request.form.get('huellas', '')
         horas_laborales = request.form['horas_laborales']
+        incluir_en_reportes = 1 if request.form.get('incluir_en_reportes') else 0
         
         password_hash = generate_password_hash(password)
 
@@ -295,10 +297,10 @@ def crear_usuario():
         try:
             # Usamos 'username' en lugar de 'email' en la DB (columna original)
             sql_insert_user = """
-                INSERT INTO usuarios (nombre, apellido, apodo, legajo, horas_laborales, username, password_hash, role) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO usuarios (nombre, apellido, apodo, legajo, horas_laborales, username, password_hash, role, incluir_en_reportes) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(sql_insert_user, (nombre, apellido, apodo, legajo, horas_laborales, email, password_hash, role))
+            cursor.execute(sql_insert_user, (nombre, apellido, apodo, legajo, horas_laborales, email, password_hash, role, incluir_en_reportes))
             new_user_id = cursor.lastrowid
             
             if new_user_id and huellas_str:
@@ -352,15 +354,16 @@ def editar_usuario(usuario_id):
         nueva_password = request.form['nueva_password']
         huellas_str = request.form.get('huellas', '')
         horas_laborales = request.form['horas_laborales']
+        incluir_en_reportes = 1 if request.form.get('incluir_en_reportes') else 0
         
         try:
             if nueva_password:
                 password_hash = generate_password_hash(nueva_password)
-                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, apodo=%s, legajo=%s, username=%s, role=%s, password_hash=%s, horas_laborales=%s WHERE id=%s"
-                cursor.execute(sql_update, (nombre, apellido, apodo, legajo, email, role, password_hash, horas_laborales, usuario_id))
+                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, apodo=%s, legajo=%s, username=%s, role=%s, password_hash=%s, horas_laborales=%s, incluir_en_reportes=%s WHERE id=%s"
+                cursor.execute(sql_update, (nombre, apellido, apodo, legajo, email, role, password_hash, horas_laborales, incluir_en_reportes, usuario_id))
             else:
-                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, apodo=%s, legajo=%s, username=%s, role=%s, horas_laborales=%s WHERE id=%s"
-                cursor.execute(sql_update, (nombre, apellido, apodo, legajo, email, role, horas_laborales, usuario_id))
+                sql_update = "UPDATE usuarios SET nombre=%s, apellido=%s, apodo=%s, legajo=%s, username=%s, role=%s, horas_laborales=%s, incluir_en_reportes=%s WHERE id=%s"
+                cursor.execute(sql_update, (nombre, apellido, apodo, legajo, email, role, horas_laborales, incluir_en_reportes, usuario_id))
             
             cursor.execute("DELETE FROM huellas WHERE usuario_id = %s", (usuario_id,))
             if huellas_str:
@@ -390,7 +393,7 @@ def editar_usuario(usuario_id):
                 conn.close()
 
     try:
-        cursor.execute("SELECT id, nombre, apellido, apodo, legajo, username as email, role, horas_laborales FROM usuarios WHERE id = %s", (usuario_id,))
+        cursor.execute("SELECT id, nombre, apellido, apodo, legajo, username as email, role, horas_laborales, incluir_en_reportes FROM usuarios WHERE id = %s", (usuario_id,))
         usuario_a_editar = cursor.fetchone()
         cursor.execute("SELECT huella_id FROM huellas WHERE usuario_id = %s", (usuario_id,))
         huellas_raw = cursor.fetchall()
@@ -475,18 +478,20 @@ def descargar_excel():
 
         conn = mysql.connector.connect(**Config.DB_CONFIG)
         # Excluir usuarios con rol 'otro'
+        # Y solo incluir si incluir_en_reportes = 1
         sql_query = """
             SELECT u.legajo, u.nombre, u.apellido, f.timestamp, f.tipo 
             FROM fichajes f 
             JOIN usuarios u ON f.usuario_id = u.id 
             WHERE f.timestamp BETWEEN %s AND %s 
             AND u.role != 'otro'
+            AND u.incluir_en_reportes = 1
             ORDER BY u.legajo, f.timestamp
         """
         df = pd.read_sql(sql_query, conn, params=(start_date, end_date))
         
         # NUEVO: Traer todos los usuarios para asegurar que aparezcan en el reporte (excluyendo 'otro')
-        users_query = "SELECT legajo, nombre, apellido FROM usuarios WHERE role != 'otro' ORDER BY legajo"
+        users_query = "SELECT legajo, nombre, apellido FROM usuarios WHERE role != 'otro' AND incluir_en_reportes = 1 ORDER BY legajo"
         all_users_df = pd.read_sql(users_query, conn)
         
         conn.close()
@@ -611,8 +616,16 @@ def descargar_excel():
             col_idx += 2
         current_excel_row = 3
         
-        # Agrupar por las columnas que ahora son strings tras aplanar
-        for (legajo, apellido_nombre), group in pivot_df.groupby(['legajo', 'Apellido y Nombre']):
+        # --- ORDENADO POR LEGAJO ---
+        # Convertimos 'legajo' a numérico en una columna auxiliar para poder ordenar correctamente
+        pivot_df['__sort_legajo'] = pd.to_numeric(pivot_df['legajo'], errors='coerce')
+        
+        # Ordenamos el DataFrame por esta columna numérica y luego por Nombre
+        # Los valores no numéricos (NaN) quedarán al final por defecto
+        pivot_df = pivot_df.sort_values(by=['__sort_legajo', 'Apellido y Nombre'])
+        
+        # Agrupar por las columnas originales. IMPORTANTE: sort=False para respetar el orden que acabamos de establecer
+        for (legajo, apellido_nombre), group in pivot_df.groupby(['legajo', 'Apellido y Nombre'], sort=False):
             row_am = group[group['Turno'] == 'Mañana']; row_pm = group[group['Turno'] == 'Tarde']
             
             cell_legajo = worksheet.cell(row=current_excel_row, column=1, value=str(legajo)); cell_legajo.border = border_legajo_top; cell_legajo.alignment = Alignment(vertical='center', horizontal='center')
@@ -689,6 +702,7 @@ def descargar_log_pdf():
                 JOIN usuarios u ON f.usuario_id = u.id
                 WHERE f.timestamp BETWEEN %s AND %s
                 AND u.role != 'otro'
+                AND u.incluir_en_reportes = 1
             """
             params = [start_limit, end_limit]
             

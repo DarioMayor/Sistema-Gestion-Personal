@@ -39,9 +39,7 @@
         <div>
             Logueado como: <strong>{{ nombre }} {{ apellido }}</strong> ({{ role }}) 
             &nbsp; | &nbsp;
-            {% if role != 'admin' %}
-                <a href="/perfil" style="color: #add8e6;">Modificar Usuario</a> &nbsp; | &nbsp;
-            {% endif %}
+            <a href="/perfil" style="color: #add8e6;">Modificar Usuario</a> &nbsp; | &nbsp;
             <a href="/logout">Cerrar Sesión</a>
         </div>
     </div>
@@ -77,8 +75,44 @@
             </form>
         </div>
 
-        {% if role != 'admin' %}
-        <!-- TARJETA: FICHAJES DE HOY (SOLO USUARIOS COMUNES) -->
+        {% if role == 'admin' %}
+        <!-- TARJETA 1: DESCARGA DE EXCEL (SOLO ADMIN) -->
+        <div class="card admin-only">
+            <h3>Reporte Consolidado (Excel)</h3>
+            <p>Selecciona un rango de fechas para descargar el reporte consolidado.</p>
+            
+            <form class="date-form" action="/admin/descargar_excel" method="POST">
+                <div>
+                    <label for="start_date">Fecha de Inicio:</label>
+                    <input type="date" id="start_date" name="start_date" required>
+                </div>
+                <div>
+                    <label for="end_date">Fecha de Fin:</label>
+                    <input type="date" id="end_date" name="end_date" required>
+                </div>
+                <button type="submit" class="btn btn-excel">Descargar Excel</button>
+            </form>
+        </div>
+
+        <div class="card admin-only">
+            <h3>Corrección Manual de Fichajes</h3>
+            <p>Agregar, modificar o eliminar fichajes individuales por fecha.</p>
+             <a href="/admin/fichajes" class="btn btn-edit" style="background-color: #6f42c1; text-decoration: none; color: white; padding: 10px 15px; border-radius: 4px; display: inline-block;">Gestionar Fichajes</a>
+        </div>
+        
+        <!-- TARJETA 2: ADMINISTRACIÓN DE USUARIOS (SOLO ADMIN) -->
+        <div class="card admin-only">
+            <h3>Administración de Usuarios</h3>
+            <p>Gestionar altas, bajas y modificaciones de empleados y sus huellas.</p>
+            
+            <!-- Ahora es solo un botón simple -->
+            <a href="/admin/usuarios" class="btn btn-edit" style="background-color: #007bff; text-decoration: none; color: white; padding: 10px 15px; border-radius: 4px; display: inline-block;">
+                Gestionar Usuarios
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- TARJETA 3: FICHAJES DE HOY -->
         <div class="card">
             <h3>Mis Fichajes de Hoy</h3>
             {% if fichajes_hoy %}
@@ -110,44 +144,6 @@
                 <p>No hay fichajes registrados para el día de hoy.</p>
             {% endif %}
         </div>
-        {% endif %}
-
-        {% if role == 'admin' %}
-        <!-- TARJETA 2: DESCARGA DE EXCEL (SOLO ADMIN) -->
-        <div class="card admin-only">
-            <h3>Reporte Consolidado (Excel)</h3>
-            <p>Selecciona un rango de fechas para descargar el reporte consolidado.</p>
-            
-            <form class="date-form" action="/admin/descargar_excel" method="POST">
-                <div>
-                    <label for="start_date">Fecha de Inicio:</label>
-                    <input type="date" id="start_date" name="start_date" required>
-                </div>
-                <div>
-                    <label for="end_date">Fecha de Fin:</label>
-                    <input type="date" id="end_date" name="end_date" required>
-                </div>
-                <button type="submit" class="btn btn-excel">Descargar Excel</button>
-            </form>
-        </div>
-
-        <div class="card admin-only">
-            <h3>Corrección Manual de Fichajes</h3>
-            <p>Agregar, modificar o eliminar fichajes individuales por fecha.</p>
-             <a href="/admin/fichajes" class="btn btn-edit" style="background-color: #6f42c1; text-decoration: none; color: white; padding: 10px 15px; border-radius: 4px; display: inline-block;">Gestionar Fichajes</a>
-        </div>
-        
-        <!-- TARJETA 3: ADMINISTRACIÓN DE USUARIOS (SOLO ADMIN) -->
-        <div class="card admin-only">
-            <h3>Administración de Usuarios</h3>
-            <p>Gestionar altas, bajas y modificaciones de empleados y sus huellas.</p>
-            
-            <!-- Ahora es solo un botón simple -->
-            <a href="/admin/usuarios" class="btn btn-edit" style="background-color: #007bff; text-decoration: none; color: white; padding: 10px 15px; border-radius: 4px; display: inline-block;">
-                Gestionar Usuarios
-            </a>
-        </div>
-        {% endif %}
     </div>
 </body>
 </html>

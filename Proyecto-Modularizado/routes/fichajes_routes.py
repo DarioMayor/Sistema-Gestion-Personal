@@ -18,6 +18,7 @@ def admin_fichajes():
     cursor = conn.cursor(dictionary=True)
     
     fecha_filtro = request.args.get('fecha', date.today().isoformat())
+    usuario_filtro = request.args.get('usuario_filtro') # Nuevo filtro por usuario
 
     if request.method == 'POST':
         try:
@@ -31,7 +32,10 @@ def admin_fichajes():
             sql_insert = "INSERT INTO fichajes (usuario_id, timestamp, tipo) VALUES (%s, %s, %s)"
             cursor.execute(sql_insert, (usuario_id, timestamp_str, tipo))
             conn.commit()
-            flash("Fichaje agregado manualmente con éxito.", "success")
+            
+            # Mantenemos el filtro de usuario al redirigir si existía
+            if usuario_filtro:
+                return redirect(url_for('fichajes.admin_fichajes', fecha=fecha_input, usuario_filtro=usuario_filtro))
             return redirect(url_for('fichajes.admin_fichajes', fecha=fecha_input))
             
         except mysql.connector.Error as err:
@@ -50,9 +54,16 @@ def admin_fichajes():
         FROM fichajes f
         JOIN usuarios u ON f.usuario_id = u.id
         WHERE f.timestamp BETWEEN %s AND %s
-        ORDER BY f.timestamp ASC
     """
-    cursor.execute(sql_list, (start_dt, end_dt))
+    params = [start_dt, end_dt]
+
+    if usuario_filtro:
+        sql_list += " AND f.usuario_id = %s"
+        params.append(usuario_filtro)
+    
+    sql_list += " ORDER BY f.timestamp ASC"
+
+    cursor.execute(sql_list, params)
     fichajes_dia = cursor.fetchall()
 
     # --- CÁLCULO DE ALERTAS ---
@@ -87,7 +98,8 @@ def admin_fichajes():
     return render_template('admin_fichajes.html', 
                            fichajes=fichajes_dia, 
                            usuarios=lista_usuarios, 
-                           fecha_seleccionada=fecha_filtro)
+                           fecha_seleccionada=fecha_filtro,
+                           usuario_seleccionado=usuario_filtro)
 
 
 # 2. EDITAR FICHAJE (MANUAL)

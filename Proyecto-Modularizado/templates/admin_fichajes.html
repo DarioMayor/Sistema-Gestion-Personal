@@ -60,10 +60,29 @@
 
     <!-- 1. FILTRO DE FECHA -->
     <div class="filter-box">
-        <form action="/admin/fichajes" method="GET" style="display:flex; align-items:center; gap:10px; width:100%;">
-            <label for="fecha"><strong>Viendo fichajes del día:</strong></label>
-            <input type="date" name="fecha" value="{{ fecha_seleccionada }}" class="form-control">
-            <button type="submit" class="btn btn-filter">Cambiar Fecha</button>
+        <form action="/admin/fichajes" method="GET" style="display:flex; align-items:center; gap:10px; width:100%; flex-wrap: wrap;">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+                <label for="fecha"><strong>Fecha:</strong></label>
+                <input type="date" name="fecha" value="{{ fecha_seleccionada }}" class="form-control">
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:2px;">
+                <label for="usuario_filtro"><strong>Filtrar Usuario:</strong></label>
+                <select name="usuario_filtro" class="form-control">
+                    <option value="">-- Todos --</option>
+                    {% for u in usuarios %}
+                        <option value="{{ u.id }}" {% if usuario_seleccionado and u.id|string == usuario_seleccionado %}selected{% endif %}>
+                            {{ u.apellido }}, {{ u.nombre }} ({{ u.legajo }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <button type="submit" class="btn btn-filter" style="margin-top: 18px;">Aplicar Filtros</button>
+            
+            {% if usuario_seleccionado %}
+                <a href="/admin/fichajes?fecha={{ fecha_seleccionada }}" class="btn" style="background:#6c757d; margin-top: 18px; text-decoration:none;">Limpiar Usuario</a>
+            {% endif %}
         </form>
     </div>
 
