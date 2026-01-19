@@ -3,7 +3,7 @@ import mysql.connector
 import datetime
 from datetime import date
 from config import Config
-from utils.decorators import admin_required
+from utils.decorators import admin_required, login_required
 
 # Creamos el Blueprint con nombre 'fichajes'
 fichajes_bp = Blueprint('fichajes', __name__)
@@ -222,3 +222,38 @@ def ver_historial(fichaje_id):
 
     except mysql.connector.Error as err:
         return f"Error: {err}"
+
+# --- FICHAJE HOME OFFICE ---
+# Esta ruta permite a usuarios con rol Home-Office fichar inmediatamente.
+@fichajes_bp.route("/fichar_home_office", methods=['POST'])
+@login_required
+def fichar_home_office():
+    # Verificar Rol
+    if session.get('role') != 'home-office':
+        flash("Acceso no autorizado para realizar fichaje Home Office.", "error")
+        return redirect(url_for('admin.dashboard'))
+    
+    # Obtener tipo (entrada/salida)
+    tipo = request.form.get('tipo')
+    if tipo not in ['entrada', 'salida']:
+        flash("Tipo de fichaje inválido.", "error")
+        return redirect(url_for('admin.dashboard'))
+
+    usuario_id = session.get('user_id')
+    # Usar fecha y hora del servidor
+    ahora = datetime.datetime.now()
+    timestamp_str = ahora.strftime('%Y-%m-%d %H:%M:%S')
+    
+    try:
+        conn = mysql.connector.connect(**Config.DB_CONFIG)
+        cursor = conn.cursor()
+        sql = "INSERT INTO fichajes (usuario_id, timestamp, tipo) VALUES (%s, %s, %s)"
+        cursor.execute(sql, (usuario_id, timestamp_str, tipo))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        flash(f"Fichaje de {tipo.upper()} registrado exitosamente a las {ahora.strftime('%H:%M:%S')}.", "success")
+    except mysql.connector.Error as err:
+        flash(f"Error al registrar fichaje: {err}", "error")
+        
+    return redirect(url_for('admin.dashboard'))

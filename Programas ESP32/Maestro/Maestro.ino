@@ -68,29 +68,34 @@ void setup() {
   preferences.begin("config", false); 
   ip_servidor = preferences.getString("serverIP", "192.168.0.198"); 
 
+  mySerial.setRxBufferSize(1024);
   mySerial.begin(57600, SERIAL_8N1, RX_PIN, TX_PIN);
   delay(100);
   if (finger.verifyPassword()) {
     Serial.println("Sensor OK.");
+    finger.getParameters();
+    Serial.print("Capacidad Sensor: "); Serial.println(finger.capacity);
   } else {
     globalMessage = "⚠️ ERROR: Sensor desconectado.";
   }
 
-  // Conexión WiFi con reintentos visibles
+  // Conexión WIFI
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.print("Conectando a WiFi");
-  int intentos = 0;
+  unsigned long inicioIntentos = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    intentos++;
-    if(intentos > 40) { // 20 segundos timeout
-       Serial.println("\nNo conecta. Revisa contraseña.");
-       break;
-    }
+      delay(500);
+      Serial.print(".");
+      if (millis() - inicioIntentos > 10000) {
+        Serial.println("\nReintentando conexión...");
+        WiFi.disconnect();
+        WiFi.begin(ssid, password);
+        inicioIntentos = millis();
+      }
   }
-  Serial.println("\nIP Asignada: " + WiFi.localIP().toString());
 
+  Serial.println("\nIP Asignada: " + WiFi.localIP().toString());
   // RUTAS WEB
   server.on("/", handleRoot);              
   server.on("/status", handleStatus);      
@@ -129,7 +134,7 @@ void rutinaFichar() {
   p = finger.image2Tz();
   if (p != FINGERPRINT_OK) return;
 
-  p = finger.fingerSearch();
+  p = finger.fingerFastSearch();
   if (p == FINGERPRINT_OK) {
     int id = finger.fingerID;
     String msg = "✅ Fichada ID #" + String(id);
@@ -141,7 +146,7 @@ void rutinaFichar() {
   } else if (p == FINGERPRINT_NOTFOUND) {
     globalMessage = "⛔ Huella NO reconocida.";
     enviarFichajeFallido();
-    delay(2000);
+    //delay(2000);
     globalMessage = "Esperando huella...";
   }
 }
@@ -231,7 +236,8 @@ void rutinaRegistrar() {
 }
 
 int getFirstFreeID() {
-  for (int i = 1; i <= 127; i++) {
+  int cap = (finger.capacity > 0) ? finger.capacity : 256;
+  for (int i = 1; i <= cap; i++) {
     if (finger.loadModel(i) != FINGERPRINT_OK) return i;
   }
   return -1;
@@ -244,55 +250,71 @@ int getFirstFreeID() {
 void handleBackup() {
   if (!server.authenticate(login_user, login_pass)) return server.requestAuthentication();
   
-  globalMessage = "⏳ GENERANDO BACKUP... NO APAGAR.";
+  // Limpiamos backup anterior
+  if (SPIFFS.exists("/backup.dat")) SPIFFS.remove("/backup.dat");
   
+  globalMessage = "⏳ GENERANDO BACKUP... ESPERE...";
   File f = SPIFFS.open("/backup.dat", FILE_WRITE);
   int count = 0;
   
-  // Recorremos todas las IDs posibles
-  for (int id = 1; id <= 127; id++) {
+  // Timeout generoso para asegurar recepción
+  mySerial.setTimeout(2000);
+
+  // Ajusta al número máximo de huellas detectado
+  int cap = (finger.capacity > 0) ? finger.capacity : 256;
+  for (int id = 1; id <= cap; id++) {
     
-    // IMPORTANTE: Limpiar buffer serial antes de cada comando para evitar saturación
+    // Limpieza de buffer
     while(mySerial.available()) mySerial.read();
     
-    // Verificamos si existe el modelo
+    // Cargar modelo del Flash del sensor a su Buffer 1
     if (finger.loadModel(id) == FINGERPRINT_OK) {
-       // Pedimos subir el modelo al ESP32
+       
+       // Pedir al sensor que suba el modelo (Upload)
        if (finger.getModel() == FINGERPRINT_OK) {
           
-          // Lectura manual del paquete (Timeout 1 seg por huella)
-          uint8_t bytesReceived[534]; 
-          memset(bytesReceived, 0xff, 534);
-          uint32_t starttime = millis();
-          int i = 0;
-          while (i < 534 && (millis() - starttime) < 1000) {
-            if (mySerial.available()) bytesReceived[i++] = mySerial.read();
-          }
+          // EL SENSOR ENVÍA: 4 paquetes de 139 bytes (128 datos + 11 overhead)
+          // Total esperado: 556 bytes (No 534)
+          uint8_t bytesReceived[556]; 
+          memset(bytesReceived, 0xff, 556);
+
+          size_t leidos = mySerial.readBytes(bytesReceived, 556);
           
-          // Procesar solo si leímos algo coherente
-          if (i > 10) {
-              uint8_t fingerTemplate[512]; 
-              int uindx = 9, index = 0;
-              memcpy(fingerTemplate + index, bytesReceived + uindx, 256);
-              uindx += 256 + 2 + 9;
-              index += 256;
-              memcpy(fingerTemplate + index, bytesReceived + uindx, 256);
-    
-              uint8_t id_byte = (uint8_t)id;
-              f.write(&id_byte, 1);
-              f.write(fingerTemplate, 512);
-              count++;
+          // Verificamos si llegaron los 4 paquetes completos
+          if (leidos == 556) { 
+             uint8_t fingerTemplate[512]; 
+             
+             // --- AQUÍ ESTABA EL ERROR ANTERIOR ---
+             // Debemos extraer 128 bytes de cada uno de los 4 paquetes
+             // Saltando los 9 bytes de encabezado de cada paquete
+             
+             // Paquete 1
+             memcpy(fingerTemplate,       bytesReceived + 9,             128);
+             // Paquete 2 (Inicio en 139)
+             memcpy(fingerTemplate + 128, bytesReceived + 139 + 9,       128);
+             // Paquete 3 (Inicio en 278)
+             memcpy(fingerTemplate + 256, bytesReceived + 139 * 2 + 9,   128);
+             // Paquete 4 (Inicio en 417)
+             memcpy(fingerTemplate + 384, bytesReceived + 139 * 3 + 9,   128);
+   
+             // Guardamos en archivo: ID + 512 bytes limpios
+             uint8_t id_byte = (uint8_t)id;
+             f.write(&id_byte, 1);
+             f.write(fingerTemplate, 512);
+             count++;
+          } else {
+             Serial.printf("Error ID %d: Tamaño incorrecto (%d bytes)\n", id, leidos);
           }
        }
     }
-    // IMPORTANTE: Pequeña pausa para que el sensor respire entre comandos
     delay(50); 
+    yield();
   }
   
   f.close();
   globalMessage = "✅ Backup OK: " + String(count) + " huellas.";
   server.send(200, "text/plain", "OK"); 
-}
+}  
 
 void handleRestore() {
   if (!server.authenticate(login_user, login_pass)) return server.requestAuthentication();

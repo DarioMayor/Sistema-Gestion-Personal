@@ -79,6 +79,7 @@
                     <!-- Mantenemos el rol seleccionado si falló -->
                     <option value="user" {% if form_data.get('role') == 'user' %}selected{% endif %}>Usuario (User)</option>
                     <option value="admin" {% if form_data.get('role') == 'admin' %}selected{% endif %}>Administrador (Admin)</option>
+                    <option value="home-office" {% if form_data.get('role') == 'home-office' %}selected{% endif %}>Home Office</option>
                     <option value="otro" {% if form_data.get('role') == 'otro' %}selected{% endif %}>Otro</option>
                 </select>
             </div>

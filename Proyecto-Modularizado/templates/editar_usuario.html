@@ -76,6 +76,7 @@
                     <!-- Usamos el valor actual de usuario.role -->
                     <option value="user" {% if usuario.role == 'user' %}selected{% endif %}>Usuario (User)</option>
                     <option value="admin" {% if usuario.role == 'admin' %}selected{% endif %}>Administrador (Admin)</option>
+                    <option value="home-office" {% if usuario.role == 'home-office' %}selected{% endif %}>Home Office</option>
                     <option value="otro" {% if usuario.role == 'otro' %}selected{% endif %}>Otro</option>
                 </select>
             </div>

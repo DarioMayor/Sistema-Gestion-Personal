@@ -77,6 +77,8 @@
                 <td>
                     {% if user.role == 'admin' %}
                         <span style="color: #FF2600; font-weight: bold;">Admin</span>
+                    {% elif user.role == 'home-office' %}
+                        <span style="color: #2196F3; font-weight: bold;">Home Office</span>
                     {% elif user.role == 'otro' %}
                         <span style="color: #fd7e14; font-weight: bold;">Otro</span>
                     {% else %}
