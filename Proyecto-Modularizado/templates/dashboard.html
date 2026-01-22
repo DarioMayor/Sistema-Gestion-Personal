@@ -59,14 +59,28 @@
         {% if role == 'home-office' %}
         <div class="card" style="background-color: #e3f2fd; border-left: 5px solid #2196F3;">
             <h3>Fichaje Home Office</h3>
+
             <p>Registra tu entrada o salida con el horario actual del servidor.</p>
             <form action="/fichar_home_office" method="POST" style="display: flex; gap: 20px;">
+                {% if ultimo_estado == 'entrada' %}
+                <button type="button" class="btn" style="background-color: #cccccc; cursor: not-allowed; font-size: 1.1em; padding: 10px 20px;" disabled>
+                    Registrar Entrada
+                </button>
+                {% else %}
                 <button type="submit" name="tipo" value="entrada" class="btn" style="background-color: #28a745; font-size: 1.1em; padding: 10px 20px;">
                     Registrar Entrada
                 </button>
+                {% endif %}
+
+                {% if ultimo_estado == 'entrada' %}
                 <button type="submit" name="tipo" value="salida" class="btn" style="background-color: #dc3545; font-size: 1.1em; padding: 10px 20px;">
                     Registrar Salida
                 </button>
+                {% else %}
+                <button type="button" class="btn" style="background-color: #cccccc; cursor: not-allowed; font-size: 1.1em; padding: 10px 20px;" disabled>
+                    Registrar Salida
+                </button>
+                {% endif %}
             </form>
         </div>
         {% endif %}

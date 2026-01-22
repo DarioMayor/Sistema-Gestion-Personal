@@ -51,7 +51,11 @@ def dashboard():
         cursor.execute(sql_hoy, (user_id, start_date, end_date))
         fichajes_hoy = cursor.fetchall()
         
-        # Formatear la hora para mostrar
+        # Formatear la hora para mostrar y obtener último estado
+        ultimo_estado = None
+        if fichajes_hoy:
+            ultimo_estado = fichajes_hoy[-1]['tipo']
+
         for f in fichajes_hoy:
             f['hora'] = f['timestamp'].strftime('%H:%M:%S')
 
@@ -59,6 +63,7 @@ def dashboard():
         conn.close()
     except Exception as e:
         print(f"Error cargando datos dashboard: {e}")
+        ultimo_estado = None
 
     contexto = {
         'username': session.get('legajo', 'Usuario'), # Mostramos legajo en lugar de username/email
@@ -66,7 +71,8 @@ def dashboard():
         'nombre': session['nombre'],
         'apellido': session['apellido'],
         'usuarios_filtro': usuarios_filtro, # Pasamos la lista al template
-        'fichajes_hoy': fichajes_hoy # Pasamos los fichajes de hoy
+        'fichajes_hoy': fichajes_hoy, # Pasamos los fichajes de hoy
+        'ultimo_estado': ultimo_estado # Último estado ('entrada' o 'salida')
     }
     return render_template('dashboard.html', **contexto)
 
